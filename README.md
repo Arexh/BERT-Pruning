@@ -5,10 +5,13 @@ The code in folder `bert`  is a clone from [google-research](https://github.com/
 
 ### Environment
 
-+ Python 3.7.6
-+ Tensorflow 1.15.0
++ Ubuntu 16.04 LTS
++ gcc 5.4.0
+
 + cudatoolkit 10.0.130
 + cudnn 7.6.5
++ Python 3.7.6
++ Tensorflow 1.15.0
 
 ### Hardware
 
@@ -18,7 +21,7 @@ The code in folder `bert`  is a clone from [google-research](https://github.com/
 
 ```
 BERT-Pruning
-|-- bert		# from https://github.com/google-research/bert
+|-- bert	# from https://github.com/google-research/bert
 |-- datasets	# a collection of datasets,need to download from https://gluebenchmark.com/tasks
 	|-- MNLI
 		|-- train.tsv
@@ -79,9 +82,9 @@ eval_time: 4.763651min
 
 |                   | MNLI-m (Acc) | QQP (F1) | QNLI (Acc) | SST-2 (Acc) | STS-B (Spearman correlations) | MRPC (F1) | RTE (Acc) | WNLI (Acc) |
 | ----------------- | ------------ | -------- | ---------- | ----------- | ----------------------------- | --------- | --------- | ---------- |
-| Our results       |              |          | 91.3       | 93.2        | 77.9 (pearson: 89.6)          |           | 67.1      | 56.3       |
+| Our results       | 84.3         | 88.2     | 91.3       | 93.0        | 78.6 (pearson: 89.6)          | 89.1      | 5.0       | 60.5       |
 | **Paper results** | 84.6         | 71.2     | 90.5       | 93.5        | 85.8                          | 88.9      | 66.4      | None       |
-| Training time     | 5.74h        | 5.06h    | 1.47h      | 0.98h       | 0.09h                         | 0.08h     | 0.05h     | 0.02h      |
+| Training time     | 5.77h        | 5.17h    | 1.48h      | 0.93h       | 0.09h                         | 0.08h     | 0.05h     | 0.03h      |
 
 The paper's result is **evaluated by GLUE evaluation server**（BERT base, not sure whether cased or uncased), probably test **on test set**. Since GLUE data set has no test label, we just evaluate these tasks **on dev set**, which means the result on dataset might be **lower** than current result, thus the comparison of results is for reference only.
 
@@ -93,10 +96,12 @@ Here we follow paper's instructions, fine-tuning model in four different learnin
 
 | Learning Rate | MNLI-m (Acc) | QQP (F1) | QNLI (Acc) | SST-2 (Acc) | STS-B (Spearman correlations) | MRPC (F1) | RTE (Acc) | WNLI (Acc) |
 | ------------- | ------------ | -------- | ---------- | ----------- | ----------------------------- | --------- | --------- | ---------- |
-| 2e-5          |              |          | 91.2       | 92.4        | 77.7                          |           | 67.1      | 56.3       |
-| 3e-5          | 83.9         |          | 91.3       | 93.2        | 78.0                          |           | 65.7      | 56.3       |
-| 4e-5          |              |          | 91.2       | 92.2        | 78.3                          |           | 64.6      | 56.3       |
-| 5e-5          |              |          | 91.2       | 91.3        | 75.6                          |           | 52.7      | 43.7       |
+| 2e-5          | 84.2         | 87.9     | 91.8       | 92.8        | 78.6                          | 88.1      | 68.2      | 43.7       |
+| 3e-5          | 84.2         | 88.0     | 91.3       | 92.3        | 77.6                          | 88.8      | 67.1      | 43.7       |
+| 4e-5          | 84.3         | 88.2     | 90.5       | 93.0        | 77.3                          | 89.1      | 52.7      | 45.1       |
+| 5e-5          | 83.9         | 87.9     | 91.0       | 91.3        | 77.0                          | 85.5      | 61.7      | 60.6       |
+
+The experimental data is stored in the folder [`fine_tune_results`](https://github.com/Holldean/BERT-Pruning/tree/master/fine_tune_results).
 
 ### Cite
 

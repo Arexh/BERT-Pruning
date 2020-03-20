@@ -1,0 +1,35 @@
+learning_rate = 2e-5
+eval_accuracy = 0.9176277
+eval_loss = 0.30812517
+global_step = 9819
+loss = 0.3081871
+f1_score = 0.916636
+train_time: 89.244261min
+eval_time: 0.760439min
+
+learning_rate = 3e-5
+eval_accuracy = 0.91268533
+eval_loss = 0.34874216
+global_step = 9819
+loss = 0.34882078
+f1_score = 0.911650
+train_time: 89.138192min
+eval_time: 0.828645min
+
+learning_rate = 4e-5
+eval_accuracy = 0.9051803
+eval_loss = 0.3974841
+global_step = 9819
+loss = 0.39755931
+f1_score = 0.904287
+train_time: 88.291130min
+eval_time: 0.757338min
+
+learning_rate = 5e-5
+eval_accuracy = 0.9103057
+eval_loss = 0.39816615
+global_step = 9819
+loss = 0.39821357
+f1_score = 0.908990
+train_time: 89.089497min
+eval_time: 0.783619min

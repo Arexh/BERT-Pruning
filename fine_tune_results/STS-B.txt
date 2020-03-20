@@ -1,0 +1,43 @@
+learning_rate = 2e-5
+MSE = 0.5027303
+global_step = 538
+label_ids = [5.   4.75 5.   ... 2.   0.   0.  ]
+loss = 0.5042644
+pearson = 0.8977636
+pred = [4.771802   4.689232   4.798403   ... 2.0604124  0.76590675 1.5319088 ]
+spearman = 0.7862845
+train_time: 5.548882min
+eval_time: 0.322131min
+
+learning_rate = 3e-5
+MSE = 0.5411237
+global_step = 538
+label_ids = [5.   4.75 5.   ... 2.   0.   0.  ]
+loss = 0.54196215
+pearson = 0.885831
+pred = [4.9690537 4.826024  4.941937  ... 2.1430154 0.6655148 1.1762731]
+spearman = 0.7759987
+train_time: 5.671090min
+eval_time: 0.329168min
+
+learning_rate = 4e-5
+MSE = 0.5485054
+global_step = 538
+label_ids = [5.   4.75 5.   ... 2.   0.   0.  ]
+loss = 0.5503865
+pearson = 0.8863849
+pred = [4.885396  4.8549943 4.9167905 ... 2.380738  1.0590289 1.2652235]
+spearman = 0.7726972
+train_time: 5.714680min
+eval_time: 0.303790min
+
+learning_rate = 5e-5
+MSE = 0.5592429
+global_step = 538
+label_ids = [5.   4.75 5.   ... 2.   0.   0.  ]
+loss = 0.5617254
+pearson = 0.8887553
+pred = [5.0144916 4.9857244 5.0587134 ... 1.9389343 1.0044609 1.5835568]
+spearman = 0.7699035
+train_time: 5.723145min
+eval_time: 0.347173min
