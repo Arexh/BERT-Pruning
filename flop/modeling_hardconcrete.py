@@ -78,7 +78,7 @@ class BertModelHardConcrete(BertModel):
 
         # Run the stacked transformer.
         # `sequence_output` shape = [batch_size, seq_length, hidden_size].
-        self.all_encoder_layers = transformer_model(
+        self.all_encoder_layers = transformer_model_train(
             input_tensor=self.embedding_output,
             attention_mask=attention_mask,
             hidden_size=config.hidden_size,
@@ -108,7 +108,7 @@ class BertModelHardConcrete(BertModel):
             kernel_initializer=create_initializer(config.initializer_range))
 
 
-def attention_layer(from_tensor,
+def attention_layer_train(from_tensor,
                     to_tensor,
                     attention_mask=None,
                     num_attention_heads=1,
@@ -122,62 +122,6 @@ def attention_layer(from_tensor,
                     batch_size=None,
                     from_seq_length=None,
                     to_seq_length=None):
-  """Performs multi-headed attention from `from_tensor` to `to_tensor`.
-
-  This is an implementation of multi-headed attention based on "Attention
-  is all you Need". If `from_tensor` and `to_tensor` are the same, then
-  this is self-attention. Each timestep in `from_tensor` attends to the
-  corresponding sequence in `to_tensor`, and returns a fixed-with vector.
-
-  This function first projects `from_tensor` into a "query" tensor and
-  `to_tensor` into "key" and "value" tensors. These are (effectively) a list
-  of tensors of length `num_attention_heads`, where each tensor is of shape
-  [batch_size, seq_length, size_per_head].
-
-  Then, the query and key tensors are dot-producted and scaled. These are
-  softmaxed to obtain attention probabilities. The value tensors are then
-  interpolated by these probabilities, then concatenated back to a single
-  tensor and returned.
-
-  In practice, the multi-headed attention are done with transposes and
-  reshapes rather than actual separate tensors.
-
-  Args:
-    from_tensor: float Tensor of shape [batch_size, from_seq_length,
-      from_width].
-    to_tensor: float Tensor of shape [batch_size, to_seq_length, to_width].
-    attention_mask: (optional) int32 Tensor of shape [batch_size,
-      from_seq_length, to_seq_length]. The values should be 1 or 0. The
-      attention scores will effectively be set to -infinity for any positions in
-      the mask that are 0, and will be unchanged for positions that are 1.
-    num_attention_heads: int. Number of attention heads.
-    size_per_head: int. Size of each attention head.
-    query_act: (optional) Activation function for the query transform.
-    key_act: (optional) Activation function for the key transform.
-    value_act: (optional) Activation function for the value transform.
-    attention_probs_dropout_prob: (optional) float. Dropout probability of the
-      attention probabilities.
-    initializer_range: float. Range of the weight initializer.
-    do_return_2d_tensor: bool. If True, the output will be of shape [batch_size
-      * from_seq_length, num_attention_heads * size_per_head]. If False, the
-      output will be of shape [batch_size, from_seq_length, num_attention_heads
-      * size_per_head].
-    batch_size: (Optional) int. If the input is 2D, this might be the batch size
-      of the 3D version of the `from_tensor` and `to_tensor`.
-    from_seq_length: (Optional) If the input is 2D, this might be the seq length
-      of the 3D version of the `from_tensor`.
-    to_seq_length: (Optional) If the input is 2D, this might be the seq length
-      of the 3D version of the `to_tensor`.
-
-  Returns:
-    float Tensor of shape [batch_size, from_seq_length,
-      num_attention_heads * size_per_head]. (If `do_return_2d_tensor` is
-      true, this will be of shape [batch_size * from_seq_length,
-      num_attention_heads * size_per_head]).
-
-  Raises:
-    ValueError: Any of the arguments or tensor shapes are invalid.
-  """
 
   def transpose_for_scores(input_tensor, batch_size, num_attention_heads,
                            seq_length, width):
@@ -215,29 +159,77 @@ def attention_layer(from_tensor,
   from_tensor_2d = reshape_to_matrix(from_tensor)
   to_tensor_2d = reshape_to_matrix(to_tensor)
 
-  # `query_layer` = [B*F, N*H]
-  query_layer = tf.layers.dense(
+  # query layer matrix factorized here
+  query_layer_q = tf.layers.dense(
       from_tensor_2d,
       num_attention_heads * size_per_head,
+      activation=None,
+      use_bias=False,
+      name="query_q",
+      kernel_initializer=create_initializer(initializer_range))
+
+  query_layer = tf.layers.dense(
+      query_layer_q,
+      num_attention_heads * size_per_head,
       activation=query_act,
-      name="query",
+      name="query_p",
+      kernel_initializer=create_initializer(initializer_range))
+
+  # # `query_layer` = [B*F, N*H]
+  # query_layer = tf.layers.dense(
+  #     from_tensor_2d,
+  #     num_attention_heads * size_per_head,
+  #     activation=query_act,
+  #     name="query",
+  #     kernel_initializer=create_initializer(initializer_range))
+
+  # key layer matrix factorized here
+  key_layer_q = tf.layers.dense(
+      to_tensor_2d,
+      num_attention_heads * size_per_head,
+      activation=None,
+      use_bias=False,
+      name="key_q",
+      kernel_initializer=create_initializer(initializer_range))
+
+  key_layer = tf.layers.dense(
+      key_layer_q,
+      num_attention_heads * size_per_head,
+      activation=key_act,
+      name="key_p",
       kernel_initializer=create_initializer(initializer_range))
 
   # `key_layer` = [B*T, N*H]
-  key_layer = tf.layers.dense(
+  # key_layer = tf.layers.dense(
+  #     to_tensor_2d,
+  #     num_attention_heads * size_per_head,
+  #     activation=key_act,
+  #     name="key",
+  #     kernel_initializer=create_initializer(initializer_range))
+
+  # value layer matrix factorized here
+  value_layer_q = tf.layers.dense(
       to_tensor_2d,
       num_attention_heads * size_per_head,
-      activation=key_act,
-      name="key",
+      activation=None,
+      use_bias=False,
+      name="value_q",
+      kernel_initializer=create_initializer(initializer_range))
+
+  value_layer = tf.layers.dense(
+      value_layer_q,
+      num_attention_heads * size_per_head,
+      activation=value_act,
+      name="value_p",
       kernel_initializer=create_initializer(initializer_range))
 
   # `value_layer` = [B*T, N*H]
-  value_layer = tf.layers.dense(
-      to_tensor_2d,
-      num_attention_heads * size_per_head,
-      activation=value_act,
-      name="value",
-      kernel_initializer=create_initializer(initializer_range))
+  # value_layer = tf.layers.dense(
+  #     to_tensor_2d,
+  #     num_attention_heads * size_per_head,
+  #     activation=value_act,
+  #     name="value",
+  #     kernel_initializer=create_initializer(initializer_range))
 
   # `query_layer` = [B, N, F, H]
   query_layer = transpose_for_scores(query_layer, batch_size,
@@ -304,7 +296,7 @@ def attention_layer(from_tensor,
   return context_layer
 
 
-def transformer_model(input_tensor,
+def transformer_model_train(input_tensor,
                       attention_mask=None,
                       hidden_size=768,
                       num_hidden_layers=12,
@@ -315,43 +307,6 @@ def transformer_model(input_tensor,
                       attention_probs_dropout_prob=0.1,
                       initializer_range=0.02,
                       do_return_all_layers=False):
-  """Multi-headed, multi-layer Transformer from "Attention is All You Need".
-
-  This is almost an exact implementation of the original Transformer encoder.
-
-  See the original paper:
-  https://arxiv.org/abs/1706.03762
-
-  Also see:
-  https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/models/transformer.py
-
-  Args:
-    input_tensor: float Tensor of shape [batch_size, seq_length, hidden_size].
-    attention_mask: (optional) int32 Tensor of shape [batch_size, seq_length,
-      seq_length], with 1 for positions that can be attended to and 0 in
-      positions that should not be.
-    hidden_size: int. Hidden size of the Transformer.
-    num_hidden_layers: int. Number of layers (blocks) in the Transformer.
-    num_attention_heads: int. Number of attention heads in the Transformer.
-    intermediate_size: int. The size of the "intermediate" (a.k.a., feed
-      forward) layer.
-    intermediate_act_fn: function. The non-linear activation function to apply
-      to the output of the intermediate/feed-forward layer.
-    hidden_dropout_prob: float. Dropout probability for the hidden layers.
-    attention_probs_dropout_prob: float. Dropout probability of the attention
-      probabilities.
-    initializer_range: float. Range of the initializer (stddev of truncated
-      normal).
-    do_return_all_layers: Whether to also return all layers or just the final
-      layer.
-
-  Returns:
-    float Tensor of shape [batch_size, seq_length, hidden_size], the final
-    hidden layer of the Transformer.
-
-  Raises:
-    ValueError: A Tensor shape or parameter is invalid.
-  """
   if hidden_size % num_attention_heads != 0:
     raise ValueError(
         "The hidden size (%d) is not a multiple of the number of attention "
@@ -383,7 +338,7 @@ def transformer_model(input_tensor,
       with tf.variable_scope("attention"):
         attention_heads = []
         with tf.variable_scope("self"):
-          attention_head = attention_layer(
+          attention_head = attention_layer_train(
               from_tensor=layer_input,
               to_tensor=layer_input,
               attention_mask=attention_mask,
@@ -408,27 +363,72 @@ def transformer_model(input_tensor,
         # Run a linear projection of `hidden_size` then add a residual
         # with `layer_input`.
         with tf.variable_scope("output"):
-          attention_output = tf.layers.dense(
+          # attention output fractorized here
+          attention_output_q = tf.layers.dense(
               attention_output,
               hidden_size,
+              use_bias=False,
+              name="output_q",
               kernel_initializer=create_initializer(initializer_range))
+
+          attention_output = tf.layers.dense(
+              attention_output_q,
+              hidden_size,
+              name="output_p",
+              kernel_initializer=create_initializer(initializer_range))
+
+          # attention_output = tf.layers.dense(
+          #     attention_output,
+          #     hidden_size,
+          #     kernel_initializer=create_initializer(initializer_range))
+          
           attention_output = dropout(attention_output, hidden_dropout_prob)
           attention_output = layer_norm(attention_output + layer_input)
 
       # The activation is only applied to the "intermediate" hidden layer.
       with tf.variable_scope("intermediate"):
-        intermediate_output = tf.layers.dense(
+        # intermidiate output fractorized here
+        intermediate_output_q = tf.layers.dense(
             attention_output,
             intermediate_size,
-            activation=intermediate_act_fn,
+            activation=None,
+            use_bias=False,
+            name='intermediate_q',
             kernel_initializer=create_initializer(initializer_range))
+
+        intermediate_output = tf.layers.dense(
+            intermediate_output_q,
+            intermediate_size,
+            activation=intermediate_act_fn,
+            name='intermediate_p',
+            kernel_initializer=create_initializer(initializer_range))
+
+        # intermediate_output = tf.layers.dense(
+        #     attention_output,
+        #     intermediate_size,
+        #     activation=intermediate_act_fn,
+        #     kernel_initializer=create_initializer(initializer_range))
 
       # Down-project back to `hidden_size` then add the residual.
       with tf.variable_scope("output"):
-        layer_output = tf.layers.dense(
+        # layer output fractorized here
+        layer_output_q = tf.layers.dense(
             intermediate_output,
             hidden_size,
+            use_bias=False,
+            name="output_q",
             kernel_initializer=create_initializer(initializer_range))
+
+        layer_output = tf.layers.dense(
+            layer_output_q,
+            hidden_size,
+            name="output_p",
+            kernel_initializer=create_initializer(initializer_range))
+
+        # layer_output = tf.layers.dense(
+        #     intermediate_output,
+        #     hidden_size,
+        #     kernel_initializer=create_initializer(initializer_range))
         layer_output = dropout(layer_output, hidden_dropout_prob)
         layer_output = layer_norm(layer_output + attention_output)
         prev_output = layer_output
