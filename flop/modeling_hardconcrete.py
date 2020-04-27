@@ -1,6 +1,3 @@
-import sys
-sys.path.append(sys.path[0] + '/../bert/')
-print(sys.path)
 from modeling import *
 
 class BertModelHardConcrete(BertModel):
@@ -160,19 +157,19 @@ def attention_layer_train(from_tensor,
   to_tensor_2d = reshape_to_matrix(to_tensor)
 
   # query layer matrix factorized here
-  query_layer_q = tf.layers.dense(
+  query_layer_p = tf.layers.dense(
       from_tensor_2d,
       num_attention_heads * size_per_head,
       activation=None,
       use_bias=False,
-      name="query_q",
+      name="query_p",
       kernel_initializer=create_initializer(initializer_range))
 
   query_layer = tf.layers.dense(
-      query_layer_q,
+      query_layer_p,
       num_attention_heads * size_per_head,
       activation=query_act,
-      name="query_p",
+      name="query_q",
       kernel_initializer=create_initializer(initializer_range))
 
   # # `query_layer` = [B*F, N*H]
@@ -184,19 +181,19 @@ def attention_layer_train(from_tensor,
   #     kernel_initializer=create_initializer(initializer_range))
 
   # key layer matrix factorized here
-  key_layer_q = tf.layers.dense(
+  key_layer_p = tf.layers.dense(
       to_tensor_2d,
       num_attention_heads * size_per_head,
       activation=None,
       use_bias=False,
-      name="key_q",
+      name="key_p",
       kernel_initializer=create_initializer(initializer_range))
 
   key_layer = tf.layers.dense(
-      key_layer_q,
+      key_layer_p,
       num_attention_heads * size_per_head,
       activation=key_act,
-      name="key_p",
+      name="key_q",
       kernel_initializer=create_initializer(initializer_range))
 
   # `key_layer` = [B*T, N*H]
@@ -208,19 +205,19 @@ def attention_layer_train(from_tensor,
   #     kernel_initializer=create_initializer(initializer_range))
 
   # value layer matrix factorized here
-  value_layer_q = tf.layers.dense(
+  value_layer_p = tf.layers.dense(
       to_tensor_2d,
       num_attention_heads * size_per_head,
       activation=None,
       use_bias=False,
-      name="value_q",
+      name="value_p",
       kernel_initializer=create_initializer(initializer_range))
 
   value_layer = tf.layers.dense(
-      value_layer_q,
+      value_layer_p,
       num_attention_heads * size_per_head,
       activation=value_act,
-      name="value_p",
+      name="value_q",
       kernel_initializer=create_initializer(initializer_range))
 
   # `value_layer` = [B*T, N*H]
@@ -364,17 +361,17 @@ def transformer_model_train(input_tensor,
         # with `layer_input`.
         with tf.variable_scope("output"):
           # attention output fractorized here
-          attention_output_q = tf.layers.dense(
+          attention_output_p = tf.layers.dense(
               attention_output,
               hidden_size,
               use_bias=False,
-              name="output_q",
+              name="dense_p",
               kernel_initializer=create_initializer(initializer_range))
 
           attention_output = tf.layers.dense(
-              attention_output_q,
+              attention_output_p,
               hidden_size,
-              name="output_p",
+              name="dense_q",
               kernel_initializer=create_initializer(initializer_range))
 
           # attention_output = tf.layers.dense(
@@ -388,19 +385,19 @@ def transformer_model_train(input_tensor,
       # The activation is only applied to the "intermediate" hidden layer.
       with tf.variable_scope("intermediate"):
         # intermidiate output fractorized here
-        intermediate_output_q = tf.layers.dense(
+        intermediate_output_p = tf.layers.dense(
             attention_output,
-            intermediate_size,
+            hidden_size,
             activation=None,
             use_bias=False,
-            name='intermediate_q',
+            name='dense_p',
             kernel_initializer=create_initializer(initializer_range))
 
         intermediate_output = tf.layers.dense(
-            intermediate_output_q,
+            intermediate_output_p,
             intermediate_size,
             activation=intermediate_act_fn,
-            name='intermediate_p',
+            name='dense_q',
             kernel_initializer=create_initializer(initializer_range))
 
         # intermediate_output = tf.layers.dense(
@@ -412,17 +409,17 @@ def transformer_model_train(input_tensor,
       # Down-project back to `hidden_size` then add the residual.
       with tf.variable_scope("output"):
         # layer output fractorized here
-        layer_output_q = tf.layers.dense(
+        layer_output_p = tf.layers.dense(
             intermediate_output,
-            hidden_size,
+            intermediate_size,
             use_bias=False,
-            name="output_q",
+            name="dense_p",
             kernel_initializer=create_initializer(initializer_range))
 
         layer_output = tf.layers.dense(
-            layer_output_q,
+            layer_output_p,
             hidden_size,
-            name="output_p",
+            name="dense_q",
             kernel_initializer=create_initializer(initializer_range))
 
         # layer_output = tf.layers.dense(
@@ -443,3 +440,192 @@ def transformer_model_train(input_tensor,
   else:
     final_output = reshape_from_matrix(prev_output, input_shape)
     return final_output
+
+
+def create_model_train(bert_config, is_training, input_ids, input_mask, segment_ids,
+                 labels, num_labels, use_one_hot_embeddings):
+  """Creates a classification model."""
+  model = BertModelHardConcrete(
+      config=bert_config,
+      is_training=is_training,
+      input_ids=input_ids,
+      input_mask=input_mask,
+      token_type_ids=segment_ids,
+      use_one_hot_embeddings=use_one_hot_embeddings)
+
+  # In the demo, we are doing a simple classification task on the entire
+  # segment.
+  #
+  # If you want to use the token-level output, use model.get_sequence_output()
+  # instead.
+  sts = True if num_labels == 0 else False
+  num_labels = max(num_labels, 1)
+
+  output_layer = model.get_pooled_output()
+
+  hidden_size = output_layer.shape[-1].value
+  
+  output_weights = tf.get_variable(
+      "output_weights", [num_labels, hidden_size],
+      initializer=tf.truncated_normal_initializer(stddev=0.02))
+
+  output_bias = tf.get_variable(
+      "output_bias", [num_labels], initializer=tf.zeros_initializer())
+
+  with tf.variable_scope("loss"):
+    if is_training:
+      # I.e., 0.1 dropout
+      output_layer = tf.nn.dropout(output_layer, keep_prob=0.9)
+
+    logits = tf.matmul(output_layer, output_weights, transpose_b=True)
+    logits = tf.nn.bias_add(logits, output_bias)
+
+    if not sts:
+      probabilities = tf.nn.softmax(logits, axis=-1)
+      log_probs = tf.nn.log_softmax(logits, axis=-1)
+      one_hot_labels = tf.one_hot(labels, depth=num_labels, dtype=tf.float32)
+      per_example_loss = -tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
+    else:
+      probabilities = None
+      logits = tf.squeeze(logits, [-1])
+      per_example_loss = tf.square(logits - labels)
+
+    loss = tf.reduce_mean(per_example_loss)
+
+    return (loss, per_example_loss, logits, probabilities)
+
+
+def model_fn_builder_train(bert_config, num_labels, init_checkpoint, learning_rate,
+                     num_train_steps, num_warmup_steps, use_tpu,
+                     use_one_hot_embeddings):
+  """Returns `model_fn` closure for TPUEstimator."""
+
+  def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
+    """The `model_fn` for TPUEstimator."""
+
+    tf.logging.info("*** Features ***")
+    for name in sorted(features.keys()):
+      tf.logging.info("  name = %s, shape = %s" % (name, features[name].shape))
+
+    input_ids = features["input_ids"]
+    input_mask = features["input_mask"]
+    segment_ids = features["segment_ids"]
+    label_ids = features["label_ids"]
+    is_real_example = None
+    if "is_real_example" in features:
+      is_real_example = tf.cast(features["is_real_example"], dtype=tf.float32)
+    else:
+      is_real_example = tf.ones(tf.shape(label_ids), dtype=tf.float32)
+
+    is_training = (mode == tf.estimator.ModeKeys.TRAIN)
+
+    (total_loss, per_example_loss, logits, probabilities) = create_model(
+        bert_config, is_training, input_ids, input_mask, segment_ids, label_ids,
+        num_labels, use_one_hot_embeddings)
+
+    sts = True if num_labels == 0 else False
+
+    tvars = tf.trainable_variables()
+    initialized_variable_names = {}
+    scaffold_fn = None
+    if init_checkpoint:
+      (assignment_map, initialized_variable_names
+      ) = modeling.get_assignment_map_from_checkpoint(tvars, init_checkpoint)
+      if use_tpu:
+
+        def tpu_scaffold():
+          tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
+          return tf.train.Scaffold()
+
+        scaffold_fn = tpu_scaffold
+      else:
+        tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
+
+    tf.logging.info("**** Trainable Variables ****")
+    for var in tvars:
+      init_string = ""
+      if var.name in initialized_variable_names:
+        init_string = ", *INIT_FROM_CKPT*"
+      tf.logging.info("  name = %s, shape = %s%s", var.name, var.shape,
+                      init_string)
+
+    output_spec = None
+    if mode == tf.estimator.ModeKeys.TRAIN:
+
+      train_op = optimization.create_optimizer(
+          total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
+
+      output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+          mode=mode,
+          loss=total_loss,
+          train_op=train_op,
+          scaffold_fn=scaffold_fn)
+    elif mode == tf.estimator.ModeKeys.EVAL:
+
+      def metric_fn(per_example_loss, label_ids, logits, is_real_example):
+        predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
+        accuracy = tf.metrics.accuracy(
+            labels=label_ids, predictions=predictions, weights=is_real_example)
+        precision = tf.metrics.precision(
+          labels=label_ids, predictions=predictions, weights=is_real_example)
+        recall = tf.metrics.recall(
+          labels=label_ids, predictions=predictions, weights=is_real_example)
+        loss = tf.metrics.mean(values=per_example_loss, weights=is_real_example)
+        return {
+            "eval_accuracy": accuracy,
+            "eval_loss": loss,
+            "precision": precision,
+            "recall": recall,
+        }
+
+      def metric_fn_sts(per_example_loss, label_ids, logits, is_real_example):
+        # Display labels and predictions	
+        concat1 = tf.contrib.metrics.streaming_concat(logits)	
+        concat2 = tf.contrib.metrics.streaming_concat(label_ids)	
+        	
+        # Compute Pearson correlation	
+        pearson = tf.contrib.metrics.streaming_pearson_correlation(logits, label_ids)	
+        	
+        # Compute MSE	
+        # mse = tf.metrics.mean(per_example_loss)    	
+        mse = tf.metrics.mean_squared_error(label_ids, logits)	
+        	
+        # Compute Spearman correlation	
+        size = tf.size(logits)	
+        indice_of_ranks_pred = tf.nn.top_k(logits, k=size)[1]	
+        indice_of_ranks_label = tf.nn.top_k(label_ids, k=size)[1]	
+        rank_pred = tf.nn.top_k(-indice_of_ranks_pred, k=size)[1]	
+        rank_label = tf.nn.top_k(-indice_of_ranks_label, k=size)[1]	
+        rank_pred = tf.to_float(rank_pred)	
+        rank_label = tf.to_float(rank_label)	
+        spearman = tf.contrib.metrics.streaming_pearson_correlation(rank_pred, rank_label)	
+        	
+        return {'pred': concat1, 'label_ids': concat2, 'pearson': pearson, 'spearman': spearman, 'MSE': mse}
+
+      if sts:
+        eval_metrics = (metric_fn_sts,
+                      [per_example_loss, label_ids, logits, is_real_example])
+      else:
+        eval_metrics = (metric_fn,
+                      [per_example_loss, label_ids, logits, is_real_example])
+
+      output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+          mode=mode,
+          loss=total_loss,
+          eval_metrics=eval_metrics,
+          scaffold_fn=scaffold_fn)
+    else:
+      if sts:
+        output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+          mode=mode,
+          predictions={"logits": logits},
+          scaffold_fn=scaffold_fn)      
+      else:
+        output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+          mode=mode,
+          predictions={"probabilities": probabilities},
+          scaffold_fn=scaffold_fn)
+    return output_spec
+
+  return model_fn
+
