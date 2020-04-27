@@ -18,55 +18,29 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 from state_of_sparsity.layers.l0_regularization import common
 from state_of_sparsity.layers.utils import layer_utils
 
 
-def _verify_weight_parameters(weight_parameters):
-  """Verifies that the format of the input `weight_parameters`.
-  Checks that the input parameters is a 2-tuple of tensors of equal shape.
-  Args:
-    weight_parameters: The parameters to check.
-  Raises:
-    RuntimeError: If the input is not a 2-tuple of tensors with equal shape.
-  Returns:
-    The input `weight_parameters`.
-  """
-  if len(weight_parameters) != 2:
-    raise RuntimeError("Incorrect number of weight parameters. Expected "
-                       "2 tensors, got {}".format(len(weight_parameters)))
-  if weight_parameters[0].shape != weight_parameters[1].shape:
-    raise RuntimeError("Expected theta and log alpha parameter tensor "
-                       "to be same shape. Got shapes {} and {}"
-                       .format(weight_parameters[0].get_shape().as_list(),
-                               weight_parameters[1].get_shape().as_list()))
-  return weight_parameters
-
-
 def matmul_train(
     x,
-    weight_parameters,
-    transpose_a=False,
-    transpose_b=False,
+    log_alpha,
     beta=common.BETA,
-    gamma=common.GAMMA,
-    zeta=common.ZETA,
+    limit_l=common.LIMIT_L,
+    limit_r=common.LIMIT_R,
     eps=common.EPSILON):
   """Training computation for a l0-regularized matmul.
   Args:
     x: 2D Tensor representing the input batch.
-    weight_parameters: 2-tuple of Tensors, where the first tensor is the
-      unscaled weight values and the second is the log of the alpha values
-      for the hard concrete distribution.
-    transpose_a: If True, a is transposed before multiplication.
-    transpose_b: If True, b is transposed before multiplication.
+    log_alpha: The log alpha parameters that control the "location" of the
+      distribution.
     beta: The beta parameter, which controls the "temperature" of
       the distribution. Defaults to 2/3 from the above paper.
-    gamma: The gamma parameter, which controls the lower bound of the
+    limit_l: The limit_l parameter, which controls the lower bound of the
       stretched distribution. Defaults to -0.1 from the above paper.
-    zeta: The zeta parameters, which controls the upper bound of the
+    limit_r: The limit_r parameters, which controls the upper bound of the
       stretched distribution. Defaults to 1.1 from the above paper.
     eps: Small constant value to use in log and sqrt operations to avoid NaNs.
   Returns:
@@ -75,37 +49,33 @@ def matmul_train(
     RuntimeError: If the weight_parameters argument is not a 2-tuple.
   """
   x.get_shape().assert_has_rank(2)
-  theta, log_alpha = _verify_weight_parameters(weight_parameters)
 
   # Sample the z values from the hard-concrete distribution
   weight_noise = common.hard_concrete_sample(
       log_alpha,
       beta,
-      gamma,
-      zeta,
+      limit_l,
+      limit_r,
       eps)
-  weights = theta * weight_noise
-  return tf.matmul(x, weights, transpose_a=transpose_a, transpose_b=transpose_b)
+  
+  mask_mat = tf.linalg.tensor_diag(weight_noise)
+
+  return tf.matmul(x, mask_mat)
 
 
 def matmul_eval(
     x,
-    weight_parameters,
-    transpose_a=False,
-    transpose_b=False,
-    gamma=common.GAMMA,
-    zeta=common.ZETA):
+    log_alpha,
+    limit_l=common.LIMIT_L,
+    limit_r=common.LIMIT_R):
   """Evaluation computation for a l0-regularized matmul.
   Args:
     x: 2D Tensor representing the input batch.
-    weight_parameters: 2-tuple of Tensors, where the first tensor is the
-      unscaled weight values and the second is the log of the alpha values
-      for the hard concrete distribution.
-    transpose_a: If True, a is transposed before multiplication.
-    transpose_b: If True, b is transposed before multiplication.
-    gamma: The gamma parameter, which controls the lower bound of the
+    log_alpha: The log alpha parameters that control the "location" of the
+      distribution.
+    limit_l: The limit_l parameter, which controls the lower bound of the
       stretched distribution. Defaults to -0.1 from the above paper.
-    zeta: The zeta parameters, which controls the upper bound of the
+    limit_r: The limit_r parameters, which controls the upper bound of the
       stretched distribution. Defaults to 1.1 from the above paper.
   Returns:
     Output Tensor of the matmul operation.
@@ -113,13 +83,17 @@ def matmul_eval(
     RuntimeError: If the weight_parameters argument is not a 2-tuple.
   """
   x.get_shape().assert_has_rank(2)
-  theta, log_alpha = _verify_weight_parameters(weight_parameters)
 
   # Use the mean of the learned hard-concrete distribution as the
   # deterministic weight noise at evaluation time
-  weight_noise = common.hard_concrete_mean(log_alpha, gamma, zeta)
-  weights = theta * weight_noise
-  return tf.matmul(x, weights, transpose_a=transpose_a, transpose_b=transpose_b)
+  weight_noise = common.hard_concrete_mean(
+      log_alpha, 
+      limit_l, 
+      limit_r)
+  
+  mask_mat = tf.linalg.tensor_diag(weight_noise)
+
+  return tf.matmul(x, mask_mat)
 
 
 def embedding_lookup_train(
@@ -127,8 +101,8 @@ def embedding_lookup_train(
     ids,
     name=None,
     beta=common.BETA,
-    gamma=common.GAMMA,
-    zeta=common.ZETA,
+    limit_l=common.LIMIT_L,
+    limit_r=common.LIMIT_R,
     eps=common.EPSILON):
   """Training computation for a l0-regularized embedding lookup.
   Args:
@@ -140,9 +114,9 @@ def embedding_lookup_train(
     name: String. Name of the operator.
     beta: The beta parameter, which controls the "temperature" of
       the distribution. Defaults to 2/3 from the above paper.
-    gamma: The gamma parameter, which controls the lower bound of the
+    limit_l: The limit_l parameter, which controls the lower bound of the
       stretched distribution. Defaults to -0.1 from the above paper.
-    zeta: The zeta parameters, which controls the upper bound of the
+    limit_r: The limit_r parameters, which controls the upper bound of the
       stretched distribution. Defaults to 1.1 from the above paper.
     eps: Small constant value to use in log and sqrt operations to avoid NaNs.
   Returns:
@@ -162,8 +136,8 @@ def embedding_lookup_train(
   embedding_noise = common.hard_concrete_sample(
       embedding_log_alpha,
       beta,
-      gamma,
-      zeta,
+      limit_l,
+      limit_r,
       eps)
   return tf.identity(embedding_theta * embedding_noise, name=name)
 
@@ -172,8 +146,8 @@ def embedding_lookup_eval(
     weight_parameters,
     ids,
     name=None,
-    gamma=common.GAMMA,
-    zeta=common.ZETA):
+    limit_l=common.LIMIT_L,
+    limit_r=common.LIMIT_R):
   """Evaluation computation for a l0-regularized embedding lookup.
   Args:
     weight_parameters: 2-tuple of Tensors, where the first tensor is the
@@ -182,9 +156,9 @@ def embedding_lookup_eval(
     ids: A Tensor with type int32 or int64 containing the ids to be looked up
       in params.
     name: String. Name of the operator.
-    gamma: The gamma parameter, which controls the lower bound of the
+    limit_l: The limit_l parameter, which controls the lower bound of the
       stretched distribution. Defaults to -0.1 from the above paper.
-    zeta: The zeta parameters, which controls the upper bound of the
+    limit_r: The limit_r parameters, which controls the upper bound of the
       stretched distribution. Defaults to 1.1 from the above paper.
   Returns:
     Output Tensor of the embedding lookup.
@@ -203,30 +177,30 @@ def embedding_lookup_eval(
   # and scale the output embedding vectors
   embedding_noise = common.hard_concrete_mean(
       embedding_log_alpha,
-      gamma,
-      zeta)
+      limit_l,
+      limit_r)
   return tf.identity(embedding_theta * embedding_noise, name=name)
 
 
 def l0_norm(
     log_alpha,
     beta=common.BETA,
-    gamma=common.GAMMA,
-    zeta=common.ZETA):
+    limit_l=common.LIMIT_L,
+    limit_r=common.LIMIT_R):
   """Calculate the l0-regularization contribution to the loss.
   Args:
     log_alpha: Tensor of the log alpha parameters for the hard concrete
       distribution.
     beta: The beta parameter, which controls the "temperature" of
       the distribution. Defaults to 2/3 from the above paper.
-    gamma: The gamma parameter, which controls the lower bound of the
+    limit_l: The limit_l parameter, which controls the lower bound of the
       stretched distribution. Defaults to -0.1 from the above paper.
-    zeta: The zeta parameters, which controls the upper bound of the
+    limit_r: The limit_r parameters, which controls the upper bound of the
       stretched distribution. Defaults to 1.1 from the above paper.
   Returns:
     Scalar tensor containing the unweighted l0-regularization term contribution
     to the loss.
   """
   # Value of the CDF of the hard-concrete distribution evaluated at 0
-  reg_per_weight = tf.sigmoid(log_alpha - beta * tf.log(-gamma / zeta))
+  reg_per_weight = tf.sigmoid(log_alpha - beta * tf.log(-limit_l / limit_r))
   return tf.reduce_sum(reg_per_weight)
