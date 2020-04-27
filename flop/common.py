@@ -49,9 +49,9 @@ def hard_concrete_sample(
       distribution.
     beta: The beta parameter, which controls the "temperature" of
       the distribution. Defaults to 2/3 from the above paper.
-    gamma: The gamma parameter, which controls the lower bound of the
+    limit_l: The limit_l parameter, which controls the lower bound of the
       stretched distribution. Defaults to -0.1 from the above paper.
-    zeta: The zeta parameters, which controls the upper bound of the
+    limit_r: The limit_r parameters, which controls the upper bound of the
       stretched distribution. Defaults to 1.1 from the above paper.
     eps: A small constant value to add to logs and sqrts to avoid NaNs.
   Returns:
@@ -85,9 +85,9 @@ def hard_concrete_mean(
   Args:
     log_alpha: The log alpha parameters that control the "location" of the
       distribution.
-    gamma: The gamma parameter, which controls the lower bound of the
+    limit_l: The limit_l parameter, which controls the lower bound of the
       stretched distribution. Defaults to -0.1 from the above paper.
-    zeta: The zeta parameters, which controls the upper bound of the
+    limit_r: The limit_r parameters, which controls the upper bound of the
       stretched distribution. Defaults to 1.1 from the above paper.
   Returns:
     A tf.Tensor representing the calculated means.
