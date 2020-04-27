@@ -29,23 +29,21 @@ EPSILON = 1e-8
 
 # The default hard-concrete distribution parameters
 BETA = 2.0 / 3.0
-GAMMA = -0.1
-ZETA = 1.1
+LIMIT_L = -0.1
+LIMIT_R = 1.1
 
 
 def hard_concrete_sample(
     log_alpha,
     beta=BETA,
-    gamma=GAMMA,
-    zeta=ZETA,
+    limit_l=LIMIT_L,
+    limit_r=LIMIT_R,
     eps=EPSILON):
   """Sample values from the hard concrete distribution.
   The hard concrete distribution is described in
   https://arxiv.org/abs/1712.01312.
-  However, I use the different version of hard concrete distribution in
-  https://arxiv.org/abs/1910.04732.
-  Thus I modify some details of the original code based on
-  https://github.com/asappresearch/flop/blob/master/flop/hardconcrete.py.
+  Here I modify some details of the variable name gama and zeta
+  to limit_l and limit_r.
   Args:
     log_alpha: The log alpha parameters that control the "location" of the
       distribution.
@@ -69,7 +67,7 @@ def hard_concrete_sample(
   # in the range [0, 1), so the right log is not at risk of NaNs.
   gate_inputs = tf.log(random_noise + eps) - tf.log(1.0 - random_noise)
   gate_inputs = tf.sigmoid((gate_inputs + log_alpha) / beta)
-  stretched_values = gate_inputs * (zeta - gamma) + gamma
+  stretched_values = gate_inputs * (limit_r - limit_l) + limit_l
 
   return tf.clip_by_value(
       stretched_values,
@@ -77,7 +75,10 @@ def hard_concrete_sample(
       clip_value_min=0.0)
 
 
-def hard_concrete_mean(log_alpha, gamma=GAMMA, zeta=ZETA):
+def hard_concrete_mean(
+    log_alpha, 
+    limit_l=LIMIT_L, 
+    limit_r=LIMIT_R):
   """Calculate the mean of the hard concrete distribution.
   The hard concrete distribution is described in
   https://arxiv.org/abs/1712.01312.
@@ -91,7 +92,7 @@ def hard_concrete_mean(log_alpha, gamma=GAMMA, zeta=ZETA):
   Returns:
     A tf.Tensor representing the calculated means.
   """
-  stretched_values = tf.sigmoid(log_alpha) * (zeta - gamma) + gamma
+  stretched_values = tf.sigmoid(log_alpha) * (limit_r - limit_l) + limit_l
   return tf.clip_by_value(
       stretched_values,
       clip_value_max=1.0,
