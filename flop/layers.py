@@ -19,26 +19,20 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
-from state_of_sparsity.layers.l0_regularization import common
-from state_of_sparsity.layers.l0_regularization import nn
-from state_of_sparsity.layers.utils import layer_utils
+import common
+import nn
 from tensorflow.python.layers import base  # pylint: disable=g-direct-tensorflow-import
 
 
-THETA_LOGALPHA_COLLECTION = "theta_logalpha"
-
-
-class FullyConnected(base.Layer):
-    """Base implementation of a fully connected layer with l0 regularization.
+class FlopFullyConnected(base.Layer):
+    """Base implementation of a fully connected layer with FLOP.
       Args:
         x: Input, float32 tensor.
         num_outputs: Int representing size of output tensor.
         activation: If None, a linear activation is used.
-        kernel_initializer: Initializer for the convolution weights.
         bias_initializer: Initalizer of the bias vector.
-        kernel_regularizer: Regularization method for the convolution weights.
         bias_regularizer: Optional regularizer for the bias vector.
         log_alpha_initializer: Specified initializer of the log_alpha term.
         is_training: Boolean specifying whether it is training or eval.
@@ -46,9 +40,9 @@ class FullyConnected(base.Layer):
         eps: Small epsilon value to prevent math op saturation.
         beta: The beta parameter, which controls the "temperature" of
           the distribution. Defaults to 2/3 from the above paper.
-        gamma: The gamma parameter, which controls the lower bound of the
+        limit_l: The limit_l parameter, which controls the lower bound of the
           stretched distribution. Defaults to -0.1 from the above paper.
-        zeta: The zeta parameters, which controls the upper bound of the
+        limit_r: The limit_r parameters, which controls the upper bound of the
           stretched distribution. Defaults to 1.1 from the above paper.
         name: String speciying name scope of layer in network.
       Returns:
@@ -58,9 +52,7 @@ class FullyConnected(base.Layer):
     def __init__(self,
                  num_outputs,
                  activation,
-                 kernel_initializer,
                  bias_initializer,
-                 kernel_regularizer,
                  bias_regularizer,
                  log_alpha_initializer,
                  activity_regularizer=None,
@@ -69,41 +61,34 @@ class FullyConnected(base.Layer):
                  use_bias=True,
                  eps=common.EPSILON,
                  beta=common.BETA,
-                 gamma=common.GAMMA,
-                 zeta=common.ZETA,
-                 name="FullyConnected",
+                 limit_l=common.LIMIT_L,
+                 limit_r=common.LIMIT_R,
+                 name="FlopFullyConnected",
                  **kwargs):
-        super(FullyConnected, self).__init__(
+        super(FlopFullyConnected, self).__init__(
             trainable=trainable,
             name=name,
             activity_regularizer=activity_regularizer,
             **kwargs)
         self.num_outputs = num_outputs
         self.activation = activation
-        self.kernel_initializer = kernel_initializer
         self.bias_initializer = bias_initializer
-        self.kernel_regularizer = kernel_regularizer
         self.bias_regularizer = bias_regularizer
         self.log_alpha_initializer = log_alpha_initializer
         self.is_training = is_training
         self.use_bias = use_bias
         self.eps = eps
         self.beta = beta
-        self.gamma = gamma
-        self.zeta = zeta
+        self.limit_l = limit_l
+        self.limit_r = limit_r
 
     def build(self, input_shape):
         input_shape = input_shape.as_list()
-        input_hidden_size = input_shape[1]
-        kernel_shape = [input_hidden_size, self.num_outputs]
 
-        self.kernel = tf.get_variable(
-            "kernel",
-            shape=kernel_shape,
-            initializer=self.kernel_initializer,
-            regularizer=self.kernel_regularizer,
-            dtype=self.dtype,
-            trainable=True)
+        assert input_shape[0] == input_shape[1]
+
+        input_hidden_size = input_shape[1]
+        diag_size = input_shape[0]
 
         if not self.log_alpha_initializer:
             # default log alpha set s.t. \alpha / (\alpha + 1) = .1
@@ -112,14 +97,14 @@ class FullyConnected(base.Layer):
 
         self.log_alpha = tf.get_variable(
             "log_alpha",
-            shape=kernel_shape,
+            shape=diag_size,
             initializer=self.log_alpha_initializer,
             dtype=self.dtype,
             trainable=True)
 
-        layer_utils.add_variable_to_collection(
-            (self.kernel, self.log_alpha),
-            [THETA_LOGALPHA_COLLECTION], None)
+        # layer_utils.add_variable_to_collection(
+        #     (self.kernel, self.log_alpha),
+        #     [THETA_LOGALPHA_COLLECTION], None)
 
         if self.use_bias:
             self.bias = self.add_variable(
@@ -137,17 +122,17 @@ class FullyConnected(base.Layer):
         if self.is_training:
             x = nn.matmul_train(
                 inputs,
-                (self.kernel, self.log_alpha),
+                self.log_alpha,
                 beta=self.beta,
-                gamma=self.gamma,
-                zeta=self.zeta,
+                limit_l=self.limit_l,
+                limit_r=self.limit_r,
                 eps=self.eps)
         else:
             x = nn.matmul_eval(
                 inputs,
-                (self.kernel, self.log_alpha),
-                gamma=self.gamma,
-                zeta=self.zeta)
+                self.log_alpha,
+                limit_l=self.limit_l,
+                limit_r=self.limit_r)
 
         if self.use_bias:
             x = tf.nn.bias_add(x, self.bias)
