@@ -24,6 +24,11 @@ import tensorflow as tf
 import common
 import nn
 from tensorflow.python.layers import base  # pylint: disable=g-direct-tensorflow-import
+from tensorflow.contrib.layers.python.layers import utils as layer_utils
+from tensorflow.python.ops import variables as tf_variables  # pylint: disable=g-direct-tensorflow-import
+
+
+THETA_LOGALPHA_COLLECTION = "theta_logalpha"
 
 
 class FlopFullyConnected(base.Layer):
@@ -63,7 +68,7 @@ class FlopFullyConnected(base.Layer):
                  beta=common.BETA,
                  limit_l=common.LIMIT_L,
                  limit_r=common.LIMIT_R,
-                 name="FlopFullyConnected",
+                 name="flop_mask",
                  **kwargs):
         super(FlopFullyConnected, self).__init__(
             trainable=trainable,
@@ -102,9 +107,9 @@ class FlopFullyConnected(base.Layer):
             dtype=self.dtype,
             trainable=True)
 
-        # layer_utils.add_variable_to_collection(
-        #     (self.kernel, self.log_alpha),
-        #     [THETA_LOGALPHA_COLLECTION], None)
+        layer_utils.add_variable_to_collection(
+            self.log_alpha,
+            [THETA_LOGALPHA_COLLECTION], None)
 
         if self.use_bias:
             self.bias = self.add_variable(
@@ -139,3 +144,15 @@ class FlopFullyConnected(base.Layer):
         if self.activation is not None:
             return self.activation(x)
         return x
+
+
+def add_variable_to_collection(var, var_set, name):
+    """Add provided variable to a given collection, with some checks."""
+    collections = layer_utils.get_variable_collections(var_set, name) or []
+    var_list = [var]
+    if isinstance(var, tf_variables.PartitionedVariable):
+        var_list = [v for v in var]
+    for collection in collections:
+        for var in var_list:
+            if var not in tf.get_collection(collection):
+                tf.add_to_collection(collection, var)

@@ -169,6 +169,7 @@ def attention_layer_train(from_tensor,
         name="query_p",
         kernel_initializer=create_initializer(initializer_range))
 
+
     query_layer = tf.layers.dense(
         query_layer_p,
         num_attention_heads * size_per_head,
