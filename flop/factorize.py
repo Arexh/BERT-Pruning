@@ -6,6 +6,7 @@ import copy
 import os
 import re
 
+
 def kernel_map(var_name):
     lst_one = var_name.split("/")
     lst_two = copy.deepcopy(lst_one)
@@ -27,9 +28,9 @@ def save_factorized_model(bert_config_file, init_checkpoint, output_dir):
     bert_config = modeling.BertConfig.from_json_file(bert_config_file)
     input_ids = tf.constant([[31, 51, 99], [15, 5, 0]])
     model = modeling_hardconcrete.BertModelHardConcrete(
-    config=bert_config,
-    is_training=False,
-    input_ids=input_ids)
+        config=bert_config,
+        is_training=False,
+        input_ids=input_ids)
     reader = pywrap_tensorflow.NewCheckpointReader(init_checkpoint)
     var_to_shape_map = reader.get_variable_to_shape_map()
     kernel_pattern = "^bert/encoder/.*((query|key|value)|(dense))/kernel$"
@@ -76,6 +77,7 @@ def save_factorized_model(bert_config_file, init_checkpoint, output_dir):
     saver = tf.train.Saver()
     saver.save(sess, output_dir)
 
+
 if __name__ == "__main__":
     import sys
     sys.path.append(sys.path[0] + "/../bert/")
@@ -84,5 +86,5 @@ if __name__ == "__main__":
     tf.logging.set_verbosity(tf.logging.DEBUG)
     save_factorized_model(
         bert_config_file="./../../uncased_L-12_H-768_A-12/bert_config.json",
-        init_checkpoint="./../../uncased_L-12_H-768_A-12/bert_model.ckpt", 
+        init_checkpoint="./../../uncased_L-12_H-768_A-12/bert_model.ckpt",
         output_dir="./../uncased_L-12_H-768_A-12_f/bert_model_f.ckpt")
