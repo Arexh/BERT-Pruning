@@ -1,4 +1,5 @@
 from modeling import *
+import layers
 
 
 class BertModelHardConcrete(BertModel):
@@ -78,7 +79,7 @@ class BertModelHardConcrete(BertModel):
 
                 # Run the stacked transformer.
                 # `sequence_output` shape = [batch_size, seq_length, hidden_size].
-                self.all_encoder_layers = transformer_model_train(
+                self.all_encoder_layers = transformer_model_flop(
                     input_tensor=self.embedding_output,
                     attention_mask=attention_mask,
                     hidden_size=config.hidden_size,
@@ -89,7 +90,8 @@ class BertModelHardConcrete(BertModel):
                     hidden_dropout_prob=config.hidden_dropout_prob,
                     attention_probs_dropout_prob=config.attention_probs_dropout_prob,
                     initializer_range=config.initializer_range,
-                    do_return_all_layers=True)
+                    do_return_all_layers=True,
+                    is_training=is_training)
 
             self.sequence_output = self.all_encoder_layers[-1]
             # The "pooler" converts the encoded sequence tensor of shape
@@ -109,20 +111,21 @@ class BertModelHardConcrete(BertModel):
                     kernel_initializer=create_initializer(config.initializer_range))
 
 
-def attention_layer_train(from_tensor,
-                          to_tensor,
-                          attention_mask=None,
-                          num_attention_heads=1,
-                          size_per_head=512,
-                          query_act=None,
-                          key_act=None,
-                          value_act=None,
-                          attention_probs_dropout_prob=0.0,
-                          initializer_range=0.02,
-                          do_return_2d_tensor=False,
-                          batch_size=None,
-                          from_seq_length=None,
-                          to_seq_length=None):
+def attention_layer_flop(from_tensor,
+                         to_tensor,
+                         attention_mask=None,
+                         num_attention_heads=1,
+                         size_per_head=512,
+                         query_act=None,
+                         key_act=None,
+                         value_act=None,
+                         attention_probs_dropout_prob=0.0,
+                         initializer_range=0.02,
+                         do_return_2d_tensor=False,
+                         batch_size=None,
+                         from_seq_length=None,
+                         to_seq_length=None,
+                         is_training=True):
 
     def transpose_for_scores(input_tensor, batch_size, num_attention_heads,
                              seq_length, width):
@@ -169,9 +172,16 @@ def attention_layer_train(from_tensor,
         name="query_p",
         kernel_initializer=create_initializer(initializer_range))
 
+    # Attention: log_alpha_initializer, eps, beta, limit_l, limit_r!
+    query_layer_mask = layers.FlopFullyConnected(
+        name="query_g",
+        log_alpha_initializer=None,
+        is_training=is_training)
+
+    query_layer_mask_output = query_layer_mask(query_layer_p)
 
     query_layer = tf.layers.dense(
-        query_layer_p,
+        query_layer_mask_output,
         num_attention_heads * size_per_head,
         activation=query_act,
         name="query_q",
@@ -194,8 +204,16 @@ def attention_layer_train(from_tensor,
         name="key_p",
         kernel_initializer=create_initializer(initializer_range))
 
+    # Attention: log_alpha_initializer, eps, beta, limit_l, limit_r!
+    key_layer_mask = layers.FlopFullyConnected(
+        name="key_g",
+        log_alpha_initializer=None,
+        is_training=is_training)
+
+    key_layer_mask_output = key_layer_mask(key_layer_p)
+
     key_layer = tf.layers.dense(
-        key_layer_p,
+        key_layer_mask_output,
         num_attention_heads * size_per_head,
         activation=key_act,
         name="key_q",
@@ -218,8 +236,16 @@ def attention_layer_train(from_tensor,
         name="value_p",
         kernel_initializer=create_initializer(initializer_range))
 
+    # Attention: log_alpha_initializer, eps, beta, limit_l, limit_r!
+    value_layer_mask = layers.FlopFullyConnected(
+        name="value_g",
+        log_alpha_initializer=None,
+        is_training=is_training)
+
+    value_layer_mask_output = value_layer_mask(value_layer_p)
+
     value_layer = tf.layers.dense(
-        value_layer_p,
+        value_layer_mask_output,
         num_attention_heads * size_per_head,
         activation=value_act,
         name="value_q",
@@ -298,17 +324,18 @@ def attention_layer_train(from_tensor,
     return context_layer
 
 
-def transformer_model_train(input_tensor,
-                            attention_mask=None,
-                            hidden_size=768,
-                            num_hidden_layers=12,
-                            num_attention_heads=12,
-                            intermediate_size=3072,
-                            intermediate_act_fn=gelu,
-                            hidden_dropout_prob=0.1,
-                            attention_probs_dropout_prob=0.1,
-                            initializer_range=0.02,
-                            do_return_all_layers=False):
+def transformer_model_flop(input_tensor,
+                           attention_mask=None,
+                           hidden_size=768,
+                           num_hidden_layers=12,
+                           num_attention_heads=12,
+                           intermediate_size=3072,
+                           intermediate_act_fn=gelu,
+                           hidden_dropout_prob=0.1,
+                           attention_probs_dropout_prob=0.1,
+                           initializer_range=0.02,
+                           do_return_all_layers=False,
+                           is_training=True):
     if hidden_size % num_attention_heads != 0:
         raise ValueError(
             "The hidden size (%d) is not a multiple of the number of attention "
@@ -340,7 +367,7 @@ def transformer_model_train(input_tensor,
             with tf.variable_scope("attention"):
                 attention_heads = []
                 with tf.variable_scope("self"):
-                    attention_head = attention_layer_train(
+                    attention_head = attention_layer_flop(
                         from_tensor=layer_input,
                         to_tensor=layer_input,
                         attention_mask=attention_mask,
@@ -351,7 +378,8 @@ def transformer_model_train(input_tensor,
                         do_return_2d_tensor=True,
                         batch_size=batch_size,
                         from_seq_length=seq_length,
-                        to_seq_length=seq_length)
+                        to_seq_length=seq_length,
+                        is_training=is_training)
                     attention_heads.append(attention_head)
 
                 attention_output = None
@@ -373,8 +401,17 @@ def transformer_model_train(input_tensor,
                         name="dense_p",
                         kernel_initializer=create_initializer(initializer_range))
 
+                    # Attention: log_alpha_initializer, eps, beta, limit_l, limit_r!
+                    attention_output_mask = layers.FlopFullyConnected(
+                        name="dense_g",
+                        log_alpha_initializer=None,
+                        is_training=is_training)
+
+                    attention_output_mask_output = attention_output_mask(
+                        attention_output_p)
+
                     attention_output = tf.layers.dense(
-                        attention_output_p,
+                        attention_output_mask_output,
                         hidden_size,
                         name="dense_q",
                         kernel_initializer=create_initializer(initializer_range))
@@ -400,8 +437,17 @@ def transformer_model_train(input_tensor,
                     name='dense_p',
                     kernel_initializer=create_initializer(initializer_range))
 
+                # Attention: log_alpha_initializer, eps, beta, limit_l, limit_r!
+                intermediate_output_mask = layers.FlopFullyConnected(
+                    name="dense_g",
+                    log_alpha_initializer=None,
+                    is_training=is_training)
+
+                intermediate_output_mask_output = intermediate_output_mask(
+                    intermediate_output_p)
+
                 intermediate_output = tf.layers.dense(
-                    intermediate_output_p,
+                    intermediate_output_mask_output,
                     intermediate_size,
                     activation=intermediate_act_fn,
                     name='dense_q',
@@ -423,8 +469,16 @@ def transformer_model_train(input_tensor,
                     name="dense_p",
                     kernel_initializer=create_initializer(initializer_range))
 
+                # Attention: log_alpha_initializer, eps, beta, limit_l, limit_r!
+                layer_output_mask = layers.FlopFullyConnected(
+                    name="dense_g",
+                    log_alpha_initializer=None,
+                    is_training=is_training)
+
+                layer_output_mask_output = layer_output_mask(layer_output_p)
+
                 layer_output = tf.layers.dense(
-                    layer_output_p,
+                    layer_output_mask_output,
                     hidden_size,
                     name="dense_q",
                     kernel_initializer=create_initializer(initializer_range))
@@ -530,7 +584,7 @@ def model_fn_builder_train(bert_config, num_labels, init_checkpoint, learning_ra
 
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)
 
-        (total_loss, per_example_loss, logits, probabilities) = create_model(
+        (total_loss, per_example_loss, logits, probabilities) = create_model_train(
             bert_config, is_training, input_ids, input_mask, segment_ids, label_ids,
             num_labels, use_one_hot_embeddings)
 

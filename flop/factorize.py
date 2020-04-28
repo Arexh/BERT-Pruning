@@ -1,7 +1,6 @@
 from tensorflow.python import pywrap_tensorflow
 import tensorflow as tf
 import numpy as np
-import factorize
 import copy
 import os
 import re
@@ -43,13 +42,13 @@ def save_factorized_model(bert_config_file, init_checkpoint, output_dir):
         tvar_names.append(var.name)
     for key in var_to_shape_map:
         if re.match(bias_pattern, key):
-            q = factorize.bias_map(key)
+            q = bias_map(key)
             q_var = [v for v in tvar if v.name == q][0]
             tf.logging.info("Tensor: %s %s", q, "*INIT_FROM_CKPT*")
             sess.run(tf.assign(q_var, reader.get_tensor(key)))
             tvar_names.remove(q)
         elif re.match(kernel_pattern, key):
-            p, q = factorize.kernel_map(key)
+            p, q = kernel_map(key)
             p_var = [v for v in tvar if v.name == p][0]
             q_var = [v for v in tvar if v.name == q][0]
             u, s, v = np.linalg.svd(reader.get_tensor(key))

@@ -20,8 +20,7 @@ from __future__ import print_function
 
 import tensorflow as tf
 
-from state_of_sparsity.layers.l0_regularization import common
-from state_of_sparsity.layers.utils import layer_utils
+import common
 
 
 def matmul_train(

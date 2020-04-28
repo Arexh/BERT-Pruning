@@ -20,11 +20,12 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+import math
 
 import common
 import nn
 from tensorflow.python.layers import base  # pylint: disable=g-direct-tensorflow-import
-from tensorflow.contrib.layers.python.layers import utils as layer_utils
+# from tensorflow.contrib.layers.python.layers import utils as layer_utils
 from tensorflow.python.ops import variables as tf_variables  # pylint: disable=g-direct-tensorflow-import
 
 
@@ -35,13 +36,8 @@ class FlopFullyConnected(base.Layer):
     """Base implementation of a fully connected layer with FLOP.
       Args:
         x: Input, float32 tensor.
-        num_outputs: Int representing size of output tensor.
-        activation: If None, a linear activation is used.
-        bias_initializer: Initalizer of the bias vector.
-        bias_regularizer: Optional regularizer for the bias vector.
         log_alpha_initializer: Specified initializer of the log_alpha term.
         is_training: Boolean specifying whether it is training or eval.
-        use_bias: Boolean specifying whether bias vector should be used.
         eps: Small epsilon value to prevent math op saturation.
         beta: The beta parameter, which controls the "temperature" of
           the distribution. Defaults to 2/3 from the above paper.
@@ -55,19 +51,15 @@ class FlopFullyConnected(base.Layer):
     """
 
     def __init__(self,
-                 num_outputs,
-                 activation,
-                 bias_initializer,
-                 bias_regularizer,
-                 log_alpha_initializer,
                  activity_regularizer=None,
                  is_training=True,
                  trainable=True,
-                 use_bias=True,
-                 eps=common.EPSILON,
-                 beta=common.BETA,
-                 limit_l=common.LIMIT_L,
-                 limit_r=common.LIMIT_R,
+                 init_mean=0.5,
+                 init_std=0.01,
+                 eps=1e-6,
+                 beta=1.0,
+                 limit_l=-0.1,
+                 limit_r=1.1,
                  name="flop_mask",
                  **kwargs):
         super(FlopFullyConnected, self).__init__(
@@ -75,13 +67,9 @@ class FlopFullyConnected(base.Layer):
             name=name,
             activity_regularizer=activity_regularizer,
             **kwargs)
-        self.num_outputs = num_outputs
-        self.activation = activation
-        self.bias_initializer = bias_initializer
-        self.bias_regularizer = bias_regularizer
-        self.log_alpha_initializer = log_alpha_initializer
         self.is_training = is_training
-        self.use_bias = use_bias
+        self.init_mean = init_mean
+        self.init_std = init_std
         self.eps = eps
         self.beta = beta
         self.limit_l = limit_l
@@ -90,37 +78,23 @@ class FlopFullyConnected(base.Layer):
     def build(self, input_shape):
         input_shape = input_shape.as_list()
 
-        assert input_shape[0] == input_shape[1]
-
         input_hidden_size = input_shape[1]
-        diag_size = input_shape[0]
 
-        if not self.log_alpha_initializer:
-            # default log alpha set s.t. \alpha / (\alpha + 1) = .1
-            self.log_alpha_initializer = tf.random_normal_initializer(
-                mean=2.197, stddev=0.01, dtype=self.dtype)
+        mean = math.log(1 - self.init_mean) - math.log(self.init_mean)
+        self.log_alpha_initializer = tf.random_normal_initializer(
+            mean=mean, stddev=self.init_std, dtype=self.dtype)
 
         self.log_alpha = tf.get_variable(
             "log_alpha",
-            shape=diag_size,
+            shape=input_hidden_size,
             initializer=self.log_alpha_initializer,
             dtype=self.dtype,
             trainable=True)
 
-        layer_utils.add_variable_to_collection(
-            self.log_alpha,
-            [THETA_LOGALPHA_COLLECTION], None)
+        # layer_utils.add_variable_to_collection(
+        #     self.log_alpha,
+        #     [THETA_LOGALPHA_COLLECTION], None)
 
-        if self.use_bias:
-            self.bias = self.add_variable(
-                name="bias",
-                shape=(self.num_outputs,),
-                initializer=self.bias_initializer,
-                regularizer=self.bias_regularizer,
-                trainable=True,
-                dtype=self.dtype)
-        else:
-            self.bias = None
         self.built = True
 
     def call(self, inputs):
@@ -139,10 +113,6 @@ class FlopFullyConnected(base.Layer):
                 limit_l=self.limit_l,
                 limit_r=self.limit_r)
 
-        if self.use_bias:
-            x = tf.nn.bias_add(x, self.bias)
-        if self.activation is not None:
-            return self.activation(x)
         return x
 
 
