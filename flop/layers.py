@@ -14,6 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# The code is taken from
+# https://github.com/google-research/google-research/blob/master/state_of_sparsity/layers/l0_regularization/layers.py.
+
 """tf.layers-like API for l0-regularization layers."""
 from __future__ import absolute_import
 from __future__ import division
@@ -32,15 +35,21 @@ from tensorflow.python.ops import variables as tf_variables  # pylint: disable=g
 THETA_LOGALPHA_COLLECTION = "theta_logalpha"
 
 
-class FlopFullyConnected(base.Layer):
+class FlopMask(base.Layer):
     """Base implementation of a fully connected layer with FLOP.
+
+    The hard concrete distribution is described in
+    https://arxiv.org/abs/1910.04732.
+
       Args:
         x: Input, float32 tensor.
-        log_alpha_initializer: Specified initializer of the log_alpha term.
         is_training: Boolean specifying whether it is training or eval.
+        trainable: Boolean defining whether this layer is trainable or not.
+        init_mean: Initialization mean value for hard concrete parameter.
+        init_std: Initialization std value for hard concrete parameter.
         eps: Small epsilon value to prevent math op saturation.
         beta: The beta parameter, which controls the "temperature" of
-          the distribution. Defaults to 2/3 from the above paper.
+          the distribution. Defaults to 1.0 from the above paper.
         limit_l: The limit_l parameter, which controls the lower bound of the
           stretched distribution. Defaults to -0.1 from the above paper.
         limit_r: The limit_r parameters, which controls the upper bound of the
@@ -62,7 +71,7 @@ class FlopFullyConnected(base.Layer):
                  limit_r=1.1,
                  name="flop_mask",
                  **kwargs):
-        super(FlopFullyConnected, self).__init__(
+        super(FlopMask, self).__init__(
             trainable=trainable,
             name=name,
             activity_regularizer=activity_regularizer,

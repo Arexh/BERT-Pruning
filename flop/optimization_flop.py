@@ -21,10 +21,42 @@ from __future__ import print_function
 import re
 import tensorflow as tf
 
+# Modify based on
+# https://github.com/asappresearch/flop/blob/master/flop/train.py.
 
-def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu):
+
+def create_optimizer(loss,
+                     init_lr,
+                     num_train_steps,
+                     num_warmup_steps,
+                     use_tpu,
+                     lr_warmup=100,
+                     model_dim=768,
+                     lambdas_lr=1.0,
+                     alphas_lr=0.001,
+                     target_sparsity=0.8,
+                     target_sparsity_warmup=80000):
     """Creates an optimizer training op."""
     global_step = tf.train.get_or_create_global_step()
+
+    lambda_1 = tf.get_variable(
+        name="lambda_1",
+        shape=[],
+        dtype=tf.float32,
+        trainable=False,
+        initializer=tf.zeros_initializer())
+
+    lambda_2 = tf.get_variable(
+        name="lambda_2",
+        shape=[],
+        dtype=tf.float32,
+        trainable=False,
+        initializer=tf.zeros_initializer())
+
+    # learning_rate_lambda = noam_learning_rate(
+    #     warmup=lr_warmup,
+    #     d_model=model_dim,
+    #     step=tf.cast(global_step, tf.int32))
 
     learning_rate = tf.constant(value=init_lr, shape=[], dtype=tf.float32)
 
@@ -114,6 +146,12 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
 
             param_name = self._get_variable_name(param.name)
 
+            if 'log_alpha' in param_name:
+                tf.logging.info("skip: param name = %s", param.name)
+                continue
+
+            tf.logging.info("apply_gradient: param name = %s", param.name)
+
             m = tf.get_variable(
                 name=param_name + "/adam_m",
                 shape=param.shape.as_list(),
@@ -172,3 +210,32 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
         if m is not None:
             param_name = m.group(1)
         return param_name
+
+
+def noam_learning_rate(warmup, d_model, step):
+    """
+    Taken from:
+    https://github.com/asappresearch/flambe/blob/master/flambe/optim/noam.py.
+
+    Linear warmup and then quadratic decay.
+
+    Linearly increases the learning rate from 0 to 1 over
+    `warmup` steps.
+    Quadratically decreases the learning rate after.
+
+    This scheduler is generally used after every training batch.
+
+     Args:
+      warmup: The number of linear warmup phases.
+      d_model: The index of last step. Default: -1
+      step: The current step. Could be training over validation steps.
+    Returns:
+      The output factor.
+    """
+    if step == 0 and warmup == 0:
+        return 1. / (d_model ** 0.5)
+    else:
+        if step > warmup:
+            return 1. / (d_model ** 0.5) / (step ** 0.5)
+        else:
+            return step / (d_model ** 0.5) / (warmup ** 1.5)

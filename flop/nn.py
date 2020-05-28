@@ -31,6 +31,10 @@ def matmul_train(
         limit_r=common.LIMIT_R,
         eps=common.EPSILON):
     """Training computation for a l0-regularized matmul.
+
+    The hard concrete distribution is described in
+    https://arxiv.org/abs/1910.04732.
+
     Args:
       x: 2D Tensor representing the input batch.
       log_alpha: The log alpha parameters that control the "location" of the
@@ -68,6 +72,10 @@ def matmul_eval(
         limit_l=common.LIMIT_L,
         limit_r=common.LIMIT_R):
     """Evaluation computation for a l0-regularized matmul.
+
+    The hard concrete distribution is described in
+    https://arxiv.org/abs/1910.04732.
+
     Args:
       x: 2D Tensor representing the input batch.
       log_alpha: The log alpha parameters that control the "location" of the

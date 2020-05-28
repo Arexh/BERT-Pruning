@@ -172,10 +172,9 @@ def attention_layer_flop(from_tensor,
         name="query_p",
         kernel_initializer=create_initializer(initializer_range))
 
-    # Attention: log_alpha_initializer, eps, beta, limit_l, limit_r!
-    query_layer_mask = layers.FlopFullyConnected(
+    # Attention: eps, beta, limit_l, limit_r!
+    query_layer_mask = layers.FlopMask(
         name="query_g",
-        log_alpha_initializer=None,
         is_training=is_training)
 
     query_layer_mask_output = query_layer_mask(query_layer_p)
@@ -204,10 +203,9 @@ def attention_layer_flop(from_tensor,
         name="key_p",
         kernel_initializer=create_initializer(initializer_range))
 
-    # Attention: log_alpha_initializer, eps, beta, limit_l, limit_r!
-    key_layer_mask = layers.FlopFullyConnected(
+    # Attention: eps, beta, limit_l, limit_r!
+    key_layer_mask = layers.FlopMask(
         name="key_g",
-        log_alpha_initializer=None,
         is_training=is_training)
 
     key_layer_mask_output = key_layer_mask(key_layer_p)
@@ -236,10 +234,9 @@ def attention_layer_flop(from_tensor,
         name="value_p",
         kernel_initializer=create_initializer(initializer_range))
 
-    # Attention: log_alpha_initializer, eps, beta, limit_l, limit_r!
-    value_layer_mask = layers.FlopFullyConnected(
+    # Attention: eps, beta, limit_l, limit_r!
+    value_layer_mask = layers.FlopMask(
         name="value_g",
-        log_alpha_initializer=None,
         is_training=is_training)
 
     value_layer_mask_output = value_layer_mask(value_layer_p)
@@ -401,10 +398,9 @@ def transformer_model_flop(input_tensor,
                         name="dense_p",
                         kernel_initializer=create_initializer(initializer_range))
 
-                    # Attention: log_alpha_initializer, eps, beta, limit_l, limit_r!
-                    attention_output_mask = layers.FlopFullyConnected(
+                    # Attention: eps, beta, limit_l, limit_r!
+                    attention_output_mask = layers.FlopMask(
                         name="dense_g",
-                        log_alpha_initializer=None,
                         is_training=is_training)
 
                     attention_output_mask_output = attention_output_mask(
@@ -437,10 +433,9 @@ def transformer_model_flop(input_tensor,
                     name='dense_p',
                     kernel_initializer=create_initializer(initializer_range))
 
-                # Attention: log_alpha_initializer, eps, beta, limit_l, limit_r!
-                intermediate_output_mask = layers.FlopFullyConnected(
+                # Attention: eps, beta, limit_l, limit_r!
+                intermediate_output_mask = layers.FlopMask(
                     name="dense_g",
-                    log_alpha_initializer=None,
                     is_training=is_training)
 
                 intermediate_output_mask_output = intermediate_output_mask(
@@ -469,10 +464,9 @@ def transformer_model_flop(input_tensor,
                     name="dense_p",
                     kernel_initializer=create_initializer(initializer_range))
 
-                # Attention: log_alpha_initializer, eps, beta, limit_l, limit_r!
-                layer_output_mask = layers.FlopFullyConnected(
+                # Attention: eps, beta, limit_l, limit_r!
+                layer_output_mask = layers.FlopMask(
                     name="dense_g",
-                    log_alpha_initializer=None,
                     is_training=is_training)
 
                 layer_output_mask_output = layer_output_mask(layer_output_p)

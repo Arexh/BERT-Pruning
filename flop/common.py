@@ -40,10 +40,11 @@ def hard_concrete_sample(
         limit_r=LIMIT_R,
         eps=EPSILON):
     """Sample values from the hard concrete distribution.
+
     The hard concrete distribution is described in
-    https://arxiv.org/abs/1712.01312.
-    Here I modify some details of the variable name gama and zeta
-    to limit_l and limit_r.
+    https://arxiv.org/abs/1910.04732.
+
+    Here I modify variable name gama and zeta to limit_l and limit_r.
     Args:
       log_alpha: The log alpha parameters that control the "location" of the
         distribution.
@@ -80,8 +81,10 @@ def hard_concrete_mean(
         limit_l=LIMIT_L,
         limit_r=LIMIT_R):
     """Calculate the mean of the hard concrete distribution.
+    
     The hard concrete distribution is described in
-    https://arxiv.org/abs/1712.01312.
+    https://arxiv.org/abs/1910.04732.
+
     Args:
       log_alpha: The log alpha parameters that control the "location" of the
         distribution.
