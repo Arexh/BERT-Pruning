@@ -25,10 +25,9 @@ from __future__ import print_function
 import tensorflow as tf
 import math
 
-import common
 import nn
 from tensorflow.python.layers import base  # pylint: disable=g-direct-tensorflow-import
-# from tensorflow.contrib.layers.python.layers import utils as layer_utils
+from tensorflow.contrib.layers.python.layers import utils as layer_utils
 from tensorflow.python.ops import variables as tf_variables  # pylint: disable=g-direct-tensorflow-import
 
 

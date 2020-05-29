@@ -53,10 +53,12 @@ def create_optimizer(loss,
         trainable=False,
         initializer=tf.zeros_initializer())
 
-    # learning_rate_lambda = noam_learning_rate(
-    #     warmup=lr_warmup,
-    #     d_model=model_dim,
-    #     step=tf.cast(global_step, tf.int32))
+    learning_rate_lambda = noam_learning_rate(
+        warmup=lr_warmup,
+        d_model=model_dim,
+        step=global_step)
+
+    learning_rate_alpha = learning_rate_lambda
 
     learning_rate = tf.constant(value=init_lr, shape=[], dtype=tf.float32)
 
@@ -68,6 +70,9 @@ def create_optimizer(loss,
         end_learning_rate=0.0,
         power=1.0,
         cycle=False)
+
+    tf.summary.scalar("learning_rate", learning_rate)
+    tf.summary.scalar("learning_rate_lambda", tf.reshape(learning_rate_alpha, []))
 
     # Implements linear warmup. I.e., if global_step < num_warmup_steps, the
     # learning rate will be `global_step/num_warmup_steps * init_lr`.
@@ -96,23 +101,37 @@ def create_optimizer(loss,
         epsilon=1e-6,
         exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"])
 
-    if use_tpu:
-        optimizer = tf.contrib.tpu.CrossShardOptimizer(optimizer)
+    optimizer_alpha = AdamWeightDecayOptimizer(
+        learning_rate=learning_rate_alpha,
+        epsilon=1e-8)
 
     tvars = tf.trainable_variables()
     grads = tf.gradients(loss, tvars)
+    var_zip = zip(grads, tvars)
+
+
+    for tvar in tvars:
+        tf.logging.info("VAR NAME: %s", tvar.name)
+    model_params = ((grad, tvar)
+                    for grad, tvar in var_zip if 'log_alpha' not in tvar.name)
+    alpha_params = ((grad, tvar)
+                    for grad, tvar in var_zip if 'log_alpha' in tvar.name)
 
     # This is how the model was pre-trained.
     (grads, _) = tf.clip_by_global_norm(grads, clip_norm=1.0)
 
     train_op = optimizer.apply_gradients(
-        zip(grads, tvars), global_step=global_step)
+        model_params, global_step=global_step)
+
+    train_op_lambda = optimizer_alpha.apply_gradients(
+        alpha_params, global_step=global_step)
 
     # Normally the global step update is done inside of `apply_gradients`.
     # However, `AdamWeightDecayOptimizer` doesn't do this. But if you use
     # a different optimizer, you should probably take this line out.
     new_global_step = global_step + 1
-    train_op = tf.group(train_op, [global_step.assign(new_global_step)])
+    train_op = tf.group(
+        train_op, [global_step.assign(new_global_step)], train_op_lambda)
     return train_op
 
 
@@ -145,12 +164,6 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
                 continue
 
             param_name = self._get_variable_name(param.name)
-
-            if 'log_alpha' in param_name:
-                tf.logging.info("skip: param name = %s", param.name)
-                continue
-
-            tf.logging.info("apply_gradient: param name = %s", param.name)
 
             m = tf.get_variable(
                 name=param_name + "/adam_m",
@@ -232,10 +245,21 @@ def noam_learning_rate(warmup, d_model, step):
     Returns:
       The output factor.
     """
-    if step == 0 and warmup == 0:
-        return 1. / (d_model ** 0.5)
-    else:
-        if step > warmup:
-            return 1. / (d_model ** 0.5) / (step ** 0.5)
-        else:
-            return step / (d_model ** 0.5) / (warmup ** 1.5)
+    step = tf.cast(step, tf.float32)
+    warmup = tf.constant(value=warmup, shape=[], dtype=tf.float32)
+    d_model = tf.constant(value=d_model, shape=[], dtype=tf.float32)
+    cond = tf.logical_and(tf.equal(step, 0), tf.equal(warmup, 0))
+    def true_f():
+        return tf.divide(tf.constant([1.0]), tf.math.sqrt(d_model))
+    def false_f():
+        return tf.cond(tf.math.greater(step, warmup),
+            lambda: tf.divide(tf.divide(tf.constant([1.0]), tf.math.sqrt(d_model)), tf.math.sqrt(step)),
+            lambda: tf.divide(tf.divide(step, tf.math.sqrt(d_model)), tf.math.pow(warmup, tf.constant([1.5]))))
+    return tf.cond(cond, true_f, false_f)
+    # if step == 0 and warmup == 0:
+    #     return 1. / (d_model ** 0.5)
+    # else:
+    #     if step > warmup:
+    #         return 1. / (d_model ** 0.5) / (step ** 0.5)
+    #     else:
+    #         return step / (d_model ** 0.5) / (warmup ** 1.5)
