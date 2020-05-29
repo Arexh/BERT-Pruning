@@ -20,6 +20,7 @@ from __future__ import print_function
 
 import re
 import tensorflow as tf
+import common
 
 # Modify based on
 # https://github.com/asappresearch/flop/blob/master/flop/train.py.
@@ -43,22 +44,27 @@ def create_optimizer(loss,
         name="lambda_1",
         shape=[],
         dtype=tf.float32,
-        trainable=False,
+        trainable=True,
         initializer=tf.zeros_initializer())
 
     lambda_2 = tf.get_variable(
         name="lambda_2",
         shape=[],
         dtype=tf.float32,
-        trainable=False,
+        trainable=True,
         initializer=tf.zeros_initializer())
 
     learning_rate_lambda = noam_learning_rate(
+        init_lr=tf.constant(-lambdas_lr, shape=[], dtype=tf.float32),
         warmup=lr_warmup,
         d_model=model_dim,
         step=global_step)
 
-    learning_rate_alpha = learning_rate_lambda
+    learning_rate_alpha = noam_learning_rate(
+        init_lr=tf.constant(alphas_lr, shape=[], dtype=tf.float32),
+        warmup=lr_warmup,
+        d_model=model_dim,
+        step=global_step)
 
     learning_rate = tf.constant(value=init_lr, shape=[], dtype=tf.float32)
 
@@ -71,8 +77,16 @@ def create_optimizer(loss,
         power=1.0,
         cycle=False)
 
+    target_sparsity = tf.constant(
+        max(min(target_sparsity, 1.0), 0.0), shape=[], dtype=tf.float32)
+    target_sparsity_warmup = tf.cast(tf.constant(
+        target_sparsity_warmup, shape=[], dtype=tf.int32), tf.float32)
+
     tf.summary.scalar("learning_rate", learning_rate)
-    tf.summary.scalar("learning_rate_lambda", tf.reshape(learning_rate_alpha, []))
+    tf.summary.scalar("learning_rate_lambda",
+                      tf.reshape(learning_rate_lambda, []))
+    tf.summary.scalar("learning_rate_alpha",
+                      tf.reshape(learning_rate_alpha, []))
 
     # Implements linear warmup. I.e., if global_step < num_warmup_steps, the
     # learning rate will be `global_step/num_warmup_steps * init_lr`.
@@ -105,33 +119,102 @@ def create_optimizer(loss,
         learning_rate=learning_rate_alpha,
         epsilon=1e-8)
 
+    optimizer_lambda = AdamWeightDecayOptimizer(
+        learning_rate=learning_rate_lambda,
+        epsilon=1e-8)
+
     tvars = tf.trainable_variables()
-    grads = tf.gradients(loss, tvars)
+
+    prunable_parameters = sum(tvar.shape[0] * tvar.shape[1]
+                              for tvar in tvars if '_p/kernel' in tvar.name or '_q/kernel' in tvar.name)
+    prunable_parameters = tf.cast(tf.constant(
+        prunable_parameters, dtype=tf.int32), tf.float32)
+
+    bias = tf.constant(common.BIAS, shape=[], dtype=tf.float32)
+
+    # Calculate expected sparsity
+    vars_dict = {}
+    expected_params = tf.constant(0, shape=[], dtype=tf.float32)
+    for tvar in tvars:
+        if '_p/kernel' in tvar.name or '_q/kernel' in tvar.name or '_g/log_alpha' in tvar.name:
+            layer_str = re.findall(
+                r'layer_\d+/[a-z/]*_[pqg]', tvar.name)[0][:-2]
+            matrix_str = re.findall(r'_[pqg]/', tvar.name)[0][1:2]
+            if layer_str not in vars_dict:
+                vars_dict[layer_str] = {}
+            vars_dict[layer_str][matrix_str] = tvar
+
+    for key, value in vars_dict.items():
+        input_feature = tf.constant(value['p'].shape[0], dtype=tf.int32)
+        output_feature = tf.constant(value['q'].shape[1], dtype=tf.int32)
+        input_feature = tf.cast(input_feature, tf.float32)
+        output_feature = tf.cast(output_feature, tf.float32)
+        alpha_param = value['g']
+        l0_norm = tf.reduce_sum(tf.math.sigmoid(tf.add(alpha_param, bias)))
+        expected_params = tf.add(expected_params, tf.add(tf.multiply(
+            input_feature, l0_norm), tf.multiply(l0_norm, output_feature)))
+
+    expected_sparsity = tf.subtract(tf.constant(
+        1., dtype=tf.float32), tf.divide(expected_params, prunable_parameters))
+    target_sparsity = tf.cond(tf.math.greater(target_sparsity_warmup, 0),
+                              lambda: tf.multiply(target_sparsity, tf.math.minimum(
+                                  1.0, tf.divide(tf.cast(global_step, tf.float32), target_sparsity_warmup))),
+                              lambda: target_sparsity)
+    lagrangian_loss = tf.multiply(
+        lambda_1, tf.subtract(target_sparsity, expected_sparsity))
+    lagrangian_loss = tf.add(lagrangian_loss, tf.multiply(
+        lambda_2, tf.math.square(tf.subtract(target_sparsity, expected_sparsity))))
+    tf.summary.scalar('l0_norm', l0_norm)
+    tf.summary.scalar('expected_params', expected_params)
+    tf.summary.scalar('expected_sparsity', expected_sparsity)
+    tf.summary.scalar('lagrangian_loss', lagrangian_loss)
+    # l0_norm = tf.reduce_sum(tf.reduce_sum(tf.math.sigmoid(tf.add(alpha_param, bias))) for alpha_param in alpha_params)
+    # tf.logging.info(l0_norm)
+    # expected_sparsity = 1. - (num_parameters / self.num_prunable_parameters)
+
+    final_loss = tf.add(loss, lagrangian_loss)
+    grads = tf.gradients(final_loss, tvars)
     var_zip = zip(grads, tvars)
 
-
-    for tvar in tvars:
-        tf.logging.info("VAR NAME: %s", tvar.name)
-    model_params = ((grad, tvar)
-                    for grad, tvar in var_zip if 'log_alpha' not in tvar.name)
-    alpha_params = ((grad, tvar)
-                    for grad, tvar in var_zip if 'log_alpha' in tvar.name)
+    grads_list = []
+    tvars_list = []
+    grads_list_lambda = []
+    tvars_list_lambda = []
+    grads_list_alpha = []
+    tvars_list_alpha = []
+    for grad, tvar in var_zip:
+        if 'log_alpha' not in tvar.name:
+            grads_list.append(grad)
+            tvars_list.append(tvar)
+        elif 'lambda_' in tvar.name:
+            grads_list_lambda.append(grad)
+            tvars_list_lambda.append(tvar)
+        else:
+            grads_list_alpha.append(grad)
+            tvars_list_alpha.append(tvar)
 
     # This is how the model was pre-trained.
-    (grads, _) = tf.clip_by_global_norm(grads, clip_norm=1.0)
+    (grads_list, _) = tf.clip_by_global_norm(grads_list, clip_norm=1.0)
+
+    model_params = zip(grads_list, tvars_list)
+    alpha_params = zip(grads_list_alpha, tvars_list_alpha)
+    lambda_params = zip(grads_list_lambda, tvars_list_lambda)
 
     train_op = optimizer.apply_gradients(
         model_params, global_step=global_step)
 
-    train_op_lambda = optimizer_alpha.apply_gradients(
+    train_op_alpha = optimizer_alpha.apply_gradients(
         alpha_params, global_step=global_step)
+
+    train_op_lambda = optimizer_lambda.apply_gradients(
+        lambda_params, global_step=global_step)
 
     # Normally the global step update is done inside of `apply_gradients`.
     # However, `AdamWeightDecayOptimizer` doesn't do this. But if you use
     # a different optimizer, you should probably take this line out.
     new_global_step = global_step + 1
     train_op = tf.group(
-        train_op, [global_step.assign(new_global_step)], train_op_lambda)
+        train_op, train_op_alpha, train_op_lambda, [global_step.assign(new_global_step)])
     return train_op
 
 
@@ -225,7 +308,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
         return param_name
 
 
-def noam_learning_rate(warmup, d_model, step):
+def noam_learning_rate(init_lr, warmup, d_model, step):
     """
     Taken from:
     https://github.com/asappresearch/flambe/blob/master/flambe/optim/noam.py.
@@ -239,6 +322,7 @@ def noam_learning_rate(warmup, d_model, step):
     This scheduler is generally used after every training batch.
 
      Args:
+      init_lr: The initial learning rate.
       warmup: The number of linear warmup phases.
       d_model: The index of last step. Default: -1
       step: The current step. Could be training over validation steps.
@@ -249,13 +333,16 @@ def noam_learning_rate(warmup, d_model, step):
     warmup = tf.constant(value=warmup, shape=[], dtype=tf.float32)
     d_model = tf.constant(value=d_model, shape=[], dtype=tf.float32)
     cond = tf.logical_and(tf.equal(step, 0), tf.equal(warmup, 0))
+
     def true_f():
         return tf.divide(tf.constant([1.0]), tf.math.sqrt(d_model))
+
     def false_f():
         return tf.cond(tf.math.greater(step, warmup),
-            lambda: tf.divide(tf.divide(tf.constant([1.0]), tf.math.sqrt(d_model)), tf.math.sqrt(step)),
-            lambda: tf.divide(tf.divide(step, tf.math.sqrt(d_model)), tf.math.pow(warmup, tf.constant([1.5]))))
-    return tf.cond(cond, true_f, false_f)
+                       lambda: tf.divide(tf.divide(tf.constant(
+                           [1.0]), tf.math.sqrt(d_model)), tf.math.sqrt(step)),
+                       lambda: tf.divide(tf.divide(step, tf.math.sqrt(d_model)), tf.math.pow(warmup, tf.constant([1.5]))))
+    return tf.multiply(init_lr, tf.cond(cond, true_f, false_f))
     # if step == 0 and warmup == 0:
     #     return 1. / (d_model ** 0.5)
     # else:

@@ -22,15 +22,16 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
-
+import math
 
 # Small constant value to add when taking logs or sqrts to avoid NaNs
 EPSILON = 1e-8
 
 # The default hard-concrete distribution parameters
-BETA = 2.0 / 3.0
+BETA = 1
 LIMIT_L = -0.1
 LIMIT_R = 1.1
+BIAS = -BETA * math.log(-LIMIT_L / LIMIT_R)
 
 
 def hard_concrete_sample(
@@ -49,7 +50,7 @@ def hard_concrete_sample(
       log_alpha: The log alpha parameters that control the "location" of the
         distribution.
       beta: The beta parameter, which controls the "temperature" of
-        the distribution. Defaults to 2/3 from the above paper.
+        the distribution. Defaults to 1 from the above paper.
       limit_l: The limit_l parameter, which controls the lower bound of the
         stretched distribution. Defaults to -0.1 from the above paper.
       limit_r: The limit_r parameters, which controls the upper bound of the
