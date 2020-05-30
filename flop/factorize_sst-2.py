@@ -22,23 +22,51 @@ def bias_map(var_name):
     lst[-1] += ":0"
     return "/".join(lst)
 
+def _get_variable_name(param_name):
+    """Get the variable name from the tensor name."""
+    m = re.match("^(.*):\\d+$", param_name)
+    if m is not None:
+        param_name = m.group(1)
+    return param_name
 
 def save_factorized_model(bert_config_file, init_checkpoint, output_dir):
     bert_config = modeling.BertConfig.from_json_file(bert_config_file)
     input_ids = tf.constant([[31, 51, 99], [15, 5, 0]])
-    model = modeling_hardconcrete.BertModelHardConcrete(
-        config=bert_config,
+    modeling_flop.create_model_train(
+        bert_config=bert_config,
         is_training=False,
-        input_ids=input_ids)
+        input_ids=input_ids,
+        input_mask=None,
+        segment_ids=None,
+        labels=None,
+        use_one_hot_embeddings=False,
+        num_labels=2)
+    total_loss = tf.constant([0], shape=[], dtype=tf.float32)
+    tvars = tf.trainable_variables()
+    for param in tvars:
+        param_name = _get_variable_name(param.name)
+        m = tf.get_variable(
+            name=param_name + "/adam_m",
+            shape=param.shape.as_list(),
+            dtype=tf.float32,
+            trainable=False,
+            initializer=tf.zeros_initializer())
+        v = tf.get_variable(
+            name=param_name + "/adam_v",
+            shape=param.shape.as_list(),
+            dtype=tf.float32,
+            trainable=False,
+            initializer=tf.zeros_initializer())
+    tvars = tf.get_collection(tf.GraphKeys.VARIABLES)
     reader = pywrap_tensorflow.NewCheckpointReader(init_checkpoint)
     var_to_shape_map = reader.get_variable_to_shape_map()
     kernel_pattern = "^bert/encoder/.*((query|key|value)|(dense))/kernel$"
     bias_pattern = "^bert/encoder/.*((query|key|value)|(dense))/bias$"
-    tvars = tf.trainable_variables()
     tvars_names = []
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
     for var in tvars:
+        tf.logging.info(var.name)
         tvars_names.append(var.name)
     for key in var_to_shape_map:
         if re.match(bias_pattern, key):
@@ -70,6 +98,7 @@ def save_factorized_model(bert_config_file, init_checkpoint, output_dir):
             tvars_names.remove(key + ":0")
             pass
         else:
+            tf.logging.info('PASSED: %s ', key)
             pass
     for var_name in tvars_names:
         tf.logging.info("Tensor: %s %s", var_name, "*NOT_INIT_FROM_CKPT*")
@@ -81,9 +110,10 @@ if __name__ == "__main__":
     import sys
     sys.path.append(sys.path[0] + "/../bert/")
     import modeling
-    import modeling_hardconcrete
+    import modeling_flop
+    import optimization_flop
     tf.logging.set_verbosity(tf.logging.DEBUG)
     save_factorized_model(
         bert_config_file="./../../uncased_L-12_H-768_A-12/bert_config.json",
-        init_checkpoint="./../../uncased_L-12_H-768_A-12/bert_model.ckpt",
-        output_dir="./../uncased_L-12_H-768_A-12_f/bert_model_f.ckpt")
+        init_checkpoint="/../../fine_tune_outputs/SST-2/lr_3e-5/model.ckpt-6313",
+        output_dir="./../uncased_L-12_H-768_A-12_SST-2_f/bert_model_f.ckpt")
