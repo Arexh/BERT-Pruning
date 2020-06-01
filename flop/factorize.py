@@ -26,7 +26,7 @@ def bias_map(var_name):
 def save_factorized_model(bert_config_file, init_checkpoint, output_dir):
     bert_config = modeling.BertConfig.from_json_file(bert_config_file)
     input_ids = tf.constant([[31, 51, 99], [15, 5, 0]])
-    model = modeling_hardconcrete.BertModelHardConcrete(
+    model = modeling_flop.BertModelHardConcrete(
         config=bert_config,
         is_training=False,
         input_ids=input_ids)
@@ -35,18 +35,18 @@ def save_factorized_model(bert_config_file, init_checkpoint, output_dir):
     kernel_pattern = "^bert/encoder/.*((query|key|value)|(dense))/kernel$"
     bias_pattern = "^bert/encoder/.*((query|key|value)|(dense))/bias$"
     tvars = tf.trainable_variables()
-    tvars_names = []
+    tvar_names = []
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
     for var in tvars:
-        tvars_names.append(var.name)
+        tvar_names.append(var.name)
     for key in var_to_shape_map:
         if re.match(bias_pattern, key):
             q = bias_map(key)
             q_var = [v for v in tvars if v.name == q][0]
             tf.logging.info("Tensor: %s %s", q, "*INIT_FROM_CKPT*")
             sess.run(tf.assign(q_var, reader.get_tensor(key)))
-            tvars_names.remove(q)
+            tvar_names.remove(q)
         elif re.match(kernel_pattern, key):
             p, q = kernel_map(key)
             p_var = [v for v in tvars if v.name == p][0]
@@ -60,18 +60,18 @@ def save_factorized_model(bert_config_file, init_checkpoint, output_dir):
             tf.logging.info("Tensor: %s %s", q, "*INIT_FROM_CKPT*")
             sess.run(tf.assign(p_var, p_mat))
             sess.run(tf.assign(q_var, q_mat))
-            tvars_names.remove(p)
-            tvars_names.remove(q)
+            tvar_names.remove(p)
+            tvar_names.remove(q)
             pass
-        elif key + ":0" in tvars_names:
+        elif key + ":0" in tvar_names:
             var = [v for v in tvars if v.name == key + ":0"][0]
             tf.logging.info("Tensor: %s %s", key + ":0", "*INIT_FROM_CKPT*")
             sess.run(tf.assign(var, reader.get_tensor(key)))
-            tvars_names.remove(key + ":0")
+            tvar_names.remove(key + ":0")
             pass
         else:
             pass
-    for var_name in tvars_names:
+    for var_name in tvar_names:
         tf.logging.info("Tensor: %s %s", var_name, "*NOT_INIT_FROM_CKPT*")
     saver = tf.train.Saver()
     saver.save(sess, output_dir)
@@ -81,7 +81,7 @@ if __name__ == "__main__":
     import sys
     sys.path.append(sys.path[0] + "/../bert/")
     import modeling
-    import modeling_hardconcrete
+    import modeling_flop
     tf.logging.set_verbosity(tf.logging.DEBUG)
     save_factorized_model(
         bert_config_file="./../../uncased_L-12_H-768_A-12/bert_config.json",

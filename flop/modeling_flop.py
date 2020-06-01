@@ -527,29 +527,29 @@ def create_model_train(bert_config, is_training, input_ids, input_mask, segment_
     output_bias = tf.get_variable(
         "output_bias", [num_labels], initializer=tf.zeros_initializer())
 
-    with tf.variable_scope("loss"):
-        if is_training:
-            # I.e., 0.1 dropout
-            output_layer = tf.nn.dropout(output_layer, keep_prob=0.9)
+    # with tf.variable_scope("loss"):
+    #     if is_training:
+    #         # I.e., 0.1 dropout
+    #         output_layer = tf.nn.dropout(output_layer, keep_prob=0.9)
 
-        logits = tf.matmul(output_layer, output_weights, transpose_b=True)
-        logits = tf.nn.bias_add(logits, output_bias)
+    #     logits = tf.matmul(output_layer, output_weights, transpose_b=True)
+    #     logits = tf.nn.bias_add(logits, output_bias)
 
-        if not sts:
-            probabilities = tf.nn.softmax(logits, axis=-1)
-            log_probs = tf.nn.log_softmax(logits, axis=-1)
-            one_hot_labels = tf.one_hot(
-                labels, depth=num_labels, dtype=tf.float32)
-            per_example_loss = - \
-                tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
-        else:
-            probabilities = None
-            logits = tf.squeeze(logits, [-1])
-            per_example_loss = tf.square(logits - labels)
+    #     if not sts:
+    #         probabilities = tf.nn.softmax(logits, axis=-1)
+    #         log_probs = tf.nn.log_softmax(logits, axis=-1)
+    #         one_hot_labels = tf.one_hot(
+    #             labels, depth=num_labels, dtype=tf.float32)
+    #         per_example_loss = - \
+    #             tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
+    #     else:
+    #         probabilities = None
+    #         logits = tf.squeeze(logits, [-1])
+    #         per_example_loss = tf.square(logits - labels)
 
-        loss = tf.reduce_mean(per_example_loss)
+    #     loss = tf.reduce_mean(per_example_loss)
 
-        return (loss, per_example_loss, logits, probabilities)
+    #     return (loss, per_example_loss, logits, probabilities)
 
 
 def model_fn_builder_train(bert_config, num_labels, init_checkpoint, learning_rate,

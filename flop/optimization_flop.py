@@ -30,38 +30,37 @@ def create_optimizer(loss,
                      init_lr,
                      num_train_steps,
                      num_warmup_steps,
-                     use_tpu,
                      lr_warmup=100,
                      model_dim=768,
-                     lambdas_lr=1.0,
-                     alphas_lr=0.001,
+                     lambda_lr=1.0,
+                     alpha_lr=0.001,
                      target_sparsity=0.8,
                      target_sparsity_warmup=80000):
     """Creates an optimizer training op."""
     global_step = tf.train.get_or_create_global_step()
 
     lambda_1 = tf.get_variable(
-        name="lambda_1",
-        shape=[],
+        "lambda_1",
+        shape=[1],
         dtype=tf.float32,
         trainable=True,
         initializer=tf.zeros_initializer())
 
     lambda_2 = tf.get_variable(
-        name="lambda_2",
-        shape=[],
+        "lambda_2",
+        shape=[1],
         dtype=tf.float32,
         trainable=True,
         initializer=tf.zeros_initializer())
 
-    learning_rate_lambda = noam_learning_rate(
-        init_lr=tf.constant(-lambdas_lr, shape=[], dtype=tf.float32),
+    lambda_learning_rate = noam_lr_scheduler(
+        init_lr=tf.constant(-lambda_lr, shape=[], dtype=tf.float32),
         warmup=lr_warmup,
         d_model=model_dim,
         step=global_step)
 
-    learning_rate_alpha = noam_learning_rate(
-        init_lr=tf.constant(alphas_lr, shape=[], dtype=tf.float32),
+    alpha_learning_rate = noam_lr_scheduler(
+        init_lr=tf.constant(alpha_lr, shape=[], dtype=tf.float32),
         warmup=lr_warmup,
         d_model=model_dim,
         step=global_step)
@@ -81,12 +80,6 @@ def create_optimizer(loss,
         max(min(target_sparsity, 1.0), 0.0), shape=[], dtype=tf.float32)
     target_sparsity_warmup = tf.cast(tf.constant(
         target_sparsity_warmup, shape=[], dtype=tf.int32), tf.float32)
-
-    tf.summary.scalar("learning_rate", learning_rate)
-    tf.summary.scalar("learning_rate_lambda",
-                      tf.reshape(learning_rate_lambda, []))
-    tf.summary.scalar("learning_rate_alpha",
-                      tf.reshape(learning_rate_alpha, []))
 
     # Implements linear warmup. I.e., if global_step < num_warmup_steps, the
     # learning rate will be `global_step/num_warmup_steps * init_lr`.
@@ -116,11 +109,11 @@ def create_optimizer(loss,
         exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"])
 
     optimizer_alpha = AdamWeightDecayOptimizer(
-        learning_rate=learning_rate_alpha,
+        learning_rate=alpha_learning_rate,
         epsilon=1e-8)
 
     optimizer_lambda = AdamWeightDecayOptimizer(
-        learning_rate=learning_rate_lambda,
+        learning_rate=lambda_learning_rate,
         epsilon=1e-8)
 
     tvars = tf.trainable_variables()
@@ -164,13 +157,19 @@ def create_optimizer(loss,
         lambda_1, tf.subtract(target_sparsity, expected_sparsity))
     lagrangian_loss = tf.add(lagrangian_loss, tf.multiply(
         lambda_2, tf.math.square(tf.subtract(target_sparsity, expected_sparsity))))
-    tf.summary.scalar('l0_norm', l0_norm)
-    tf.summary.scalar('expected_params', expected_params)
-    tf.summary.scalar('expected_sparsity', expected_sparsity)
-    tf.summary.scalar('lagrangian_loss', lagrangian_loss)
-    # l0_norm = tf.reduce_sum(tf.reduce_sum(tf.math.sigmoid(tf.add(alpha_param, bias))) for alpha_param in alpha_params)
-    # tf.logging.info(l0_norm)
-    # expected_sparsity = 1. - (num_parameters / self.num_prunable_parameters)
+
+    tf.summary.scalar('loss', loss)
+    tf.summary.scalar('lagrangian_loss', tf.reshape(lagrangian_loss, []))
+    tf.summary.scalar("model_lr", learning_rate)
+    tf.summary.scalar("lambda_lr",
+                      tf.reshape(lambda_learning_rate, []))
+    tf.summary.scalar("alpha_lr",
+                      tf.reshape(alpha_learning_rate, []))
+    tf.summary.scalar('l0_norm', tf.reshape(l0_norm, []))
+    tf.summary.scalar('expected_sparsity', tf.reshape(expected_sparsity, []))
+    tf.summary.scalar('target_sparsity', tf.reshape(target_sparsity, []))
+    tf.summary.scalar('lambda_1', tf.reshape(lambda_1, []))
+    tf.summary.scalar('lambda_2', tf.reshape(lambda_2, []))
 
     final_loss = tf.add(loss, lagrangian_loss)
     grads = tf.gradients(final_loss, tvars)
@@ -183,7 +182,7 @@ def create_optimizer(loss,
     grads_list_alpha = []
     tvars_list_alpha = []
     for grad, tvar in var_zip:
-        if 'log_alpha' not in tvar.name:
+        if 'log_alpha' not in tvar.name and 'lambda_' not in tvar.name:
             grads_list.append(grad)
             tvars_list.append(tvar)
         elif 'lambda_' in tvar.name:
@@ -192,6 +191,10 @@ def create_optimizer(loss,
         else:
             grads_list_alpha.append(grad)
             tvars_list_alpha.append(tvar)
+    
+    tf.logging.info("Normal: %d" % len(grads_list))
+    tf.logging.info("Lambda: %d" % len(grads_list_lambda))
+    tf.logging.info("Alpha: %d" % len(grads_list_alpha))
 
     # This is how the model was pre-trained.
     (grads_list, _) = tf.clip_by_global_norm(grads_list, clip_norm=1.0)
@@ -305,10 +308,9 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
         m = re.match("^(.*):\\d+$", param_name)
         if m is not None:
             param_name = m.group(1)
-        return param_name
+        return param_name    
 
-
-def noam_learning_rate(init_lr, warmup, d_model, step):
+def noam_lr_scheduler(init_lr, warmup, d_model, step):
     """
     Taken from:
     https://github.com/asappresearch/flambe/blob/master/flambe/optim/noam.py.

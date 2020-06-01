@@ -58,6 +58,7 @@ def save_factorized_model(bert_config_file, init_checkpoint, output_dir):
             trainable=False,
             initializer=tf.zeros_initializer())
     tvars = tf.get_collection(tf.GraphKeys.VARIABLES)
+    total_parameters = 0
     reader = pywrap_tensorflow.NewCheckpointReader(init_checkpoint)
     var_to_shape_map = reader.get_variable_to_shape_map()
     kernel_pattern = "^bert/encoder/.*((query|key|value)|(dense))/kernel$"

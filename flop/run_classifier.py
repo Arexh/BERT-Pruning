@@ -29,6 +29,8 @@ import modeling_flop
 import optimization_flop
 import tokenization
 import tensorflow as tf
+import numpy as np
+import utils
 
 flags = tf.flags
 
@@ -126,6 +128,38 @@ tf.flags.DEFINE_string("master", None, "[Optional] TensorFlow master URL.")
 flags.DEFINE_integer(
     "num_tpu_cores", 8,
     "Only used if `use_tpu` is True. Total number of TPU cores to use.")
+
+flags.DEFINE_string(
+    "tensorbord_output_dir", None,
+    "The tensorflow output dir.")
+
+flags.DEFINE_integer(
+    "learning_rate_warmup", 100,
+    "The warmup steps of alpha and lambda.")
+  
+flags.DEFINE_float(
+    "lambda_learning_rate", 1.0,
+    "The initial learning rate of lambda.")
+
+flags.DEFINE_float(
+    "alpha_learning_rate", 0.01,
+    "The initial learning rate of alpha.")
+
+flags.DEFINE_float(
+    "target_sparsity", 0.8,
+    "The target sparsity of pruned model.")
+
+flags.DEFINE_integer(
+    "target_sparsity_warmup", 30000,
+    "The warmup steps of target sparsity.")
+
+flags.DEFINE_float(
+    "attention_probs_dropout_prob", 0.1,
+    "The dropout probability of attention layer.")
+
+flags.DEFINE_float(
+    "hidden_dropout_prob", 0.1,
+    "The dropout probability of hidden layer.")
 
 class InputExample(object):
   """A single training/test example for simple sequence classification."""
@@ -881,7 +915,8 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
 
 def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu,
-                     use_one_hot_embeddings):
+                     use_one_hot_embeddings, learning_rate_warmup, lambda_learning_rate,
+                     alpha_learning_rate, target_sparsity, target_sparsity_warmup):
   """Returns `model_fn` closure for TPUEstimator."""
 
   def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
@@ -906,8 +941,6 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
     (total_loss, per_example_loss, logits, probabilities) = create_model(
         bert_config, is_training, input_ids, input_mask, segment_ids, label_ids,
         num_labels, use_one_hot_embeddings)
-
-    tf.summary.scalar("loss", total_loss)
 
     sts = True if num_labels == 0 else False
 
@@ -939,18 +972,50 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
     if mode == tf.estimator.ModeKeys.TRAIN:
 
       train_op = optimization_flop.create_optimizer(
-          total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
+          total_loss,
+          learning_rate,
+          num_train_steps,
+          num_warmup_steps,
+          lr_warmup=learning_rate_warmup,
+          lambda_lr=lambda_learning_rate,
+          alpha_lr=alpha_learning_rate,
+          target_sparsity=target_sparsity,
+          target_sparsity_warmup=target_sparsity_warmup)
       
-      summary_hook = tf.train.SummarySaverHook(
-        10,
-        output_dir='./tmp/tf',
-        summary_op=tf.summary.merge_all())
+      if FLAGS.tensorbord_output_dir is not None:
+        summary_hook = tf.train.SummarySaverHook(
+          10,
+          output_dir=FLAGS.tensorbord_output_dir,
+          summary_op=tf.summary.merge_all())
+        
+        hyperparams = np.array(["batch_size=%d" % FLAGS.train_batch_size,
+                                "epochs=%f" % FLAGS.num_train_epochs,
+                                "warmup_proportion=%f" % FLAGS.warmup_proportion,
+                                "init_lr=%f" % FLAGS.learning_rate,
+                                "lambda_lr=%f" % FLAGS.lambda_learning_rate,
+                                "alpha_lr=%f" % FLAGS.alpha_learning_rate,
+                                "lr_warmup=%d" % FLAGS.learning_rate_warmup,
+                                "target_sparsity=%f" % FLAGS.target_sparsity,
+                                "target_sparsity_warmup=%d" % FLAGS.target_sparsity_warmup,
+                                "hidden_dropout_prob=%f" % FLAGS.hidden_dropout_prob,
+                                "attention_probs_dropout_prob=%f" % FLAGS.attention_probs_dropout_prob])
+        hp_op = tf.summary.text("Hyperparameters", tf.constant(hyperparams))
 
-      output_spec = tf.estimator.EstimatorSpec(
-          mode=mode,
-          loss=total_loss,
-          train_op=train_op,
-          training_hooks=[summary_hook])
+        hyperparameters_hook = tf.train.SummarySaverHook(
+          100000,
+          output_dir=FLAGS.tensorbord_output_dir,
+          summary_op=[hp_op])
+         
+        output_spec = tf.estimator.EstimatorSpec(
+            mode=mode,
+            loss=total_loss,
+            train_op=train_op,
+            training_hooks=[summary_hook, hyperparameters_hook])
+      else:
+        output_spec = tf.estimator.EstimatorSpec(
+            mode=mode,
+            loss=total_loss,
+            train_op=train_op)
       
     elif mode == tf.estimator.ModeKeys.EVAL:
 
@@ -1106,6 +1171,11 @@ def main(_):
   start = time.time()
   tf.logging.set_verbosity(tf.logging.INFO)
 
+  time_str = utils.now_to_date()
+  FLAGS.output_dir = os.path.join(FLAGS.output_dir, time_str)
+  if FLAGS.tensorbord_output_dir is not None:
+    FLAGS.tensorbord_output_dir = os.path.join(FLAGS.tensorbord_output_dir, time_str)
+
   processors = {
       "cola": ColaProcessor,
       "mnli": MnliProcessor,
@@ -1129,6 +1199,8 @@ def main(_):
         "At least one of `do_train`, `do_eval` or `do_predict' must be True.")
 
   bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
+  bert_config.attention_probs_dropout_prob = FLAGS.attention_probs_dropout_prob
+  bert_config.hidden_dropout_prob = FLAGS.hidden_dropout_prob
 
   if FLAGS.max_seq_length > bert_config.max_position_embeddings:
     raise ValueError(
@@ -1184,7 +1256,12 @@ def main(_):
       num_train_steps=num_train_steps,
       num_warmup_steps=num_warmup_steps,
       use_tpu=FLAGS.use_tpu,
-      use_one_hot_embeddings=FLAGS.use_tpu)
+      use_one_hot_embeddings=FLAGS.use_tpu,
+      learning_rate_warmup=FLAGS.learning_rate_warmup,
+      lambda_learning_rate=FLAGS.lambda_learning_rate,
+      alpha_learning_rate=FLAGS.alpha_learning_rate,
+      target_sparsity=FLAGS.target_sparsity,
+      target_sparsity_warmup=FLAGS.target_sparsity_warmup)
 
   # If TPU is not available, this will fall back to normal Estimator on CPU
   # or GPU.
@@ -1196,6 +1273,7 @@ def main(_):
       eval_batch_size=FLAGS.eval_batch_size,
       predict_batch_size=FLAGS.predict_batch_size)
 
+  train_time = 0
   if FLAGS.do_train:
     train_file = os.path.join(FLAGS.output_dir, "train.tf_record")
     file_based_convert_examples_to_features(
