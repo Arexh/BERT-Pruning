@@ -103,20 +103,6 @@ flags.DEFINE_integer("save_checkpoints_steps", 1000,
 flags.DEFINE_integer("iterations_per_loop", 1000,
                      "How many steps to make in each estimator call.")
 
-flags.DEFINE_bool("use_tpu", False, "Whether to use TPU or GPU/CPU.")
-
-tf.flags.DEFINE_string(
-    "tpu_name", None,
-    "The Cloud TPU to use for training. This should be either the name "
-    "used when creating the Cloud TPU, or a grpc://ip.address.of.tpu:8470 "
-    "url.")
-
-tf.flags.DEFINE_string(
-    "tpu_zone", None,
-    "[Optional] GCE zone where the Cloud TPU is located in. If not "
-    "specified, we will attempt to automatically detect the GCE project from "
-    "metadata.")
-
 tf.flags.DEFINE_string(
     "gcp_project", None,
     "[Optional] Project name for the Cloud TPU-enabled project. If not "
@@ -124,10 +110,6 @@ tf.flags.DEFINE_string(
     "metadata.")
 
 tf.flags.DEFINE_string("master", None, "[Optional] TensorFlow master URL.")
-
-flags.DEFINE_integer(
-    "num_tpu_cores", 8,
-    "Only used if `use_tpu` is True. Total number of TPU cores to use.")
 
 flags.DEFINE_string(
     "tensorbord_output_dir", None,
@@ -180,20 +162,6 @@ class InputExample(object):
     self.text_a = text_a
     self.text_b = text_b
     self.label = label
-
-
-class PaddingInputExample(object):
-  """Fake example so the num input examples is a multiple of the batch size.
-
-  When running eval/predict on the TPU, we need to pad the number of examples
-  to be a multiple of the batch size, because the TPU requires a fixed batch
-  size. The alternative is to drop the last batch, which is bad because it means
-  the entire output data won't be generated.
-
-  We use this class instead of `None` because treating `None` as padding
-  battches could cause silent errors.
-  """
-
 
 class InputFeatures(object):
   """A single set of features of data."""
@@ -650,15 +618,6 @@ class StsProcessor(DataProcessor):
 def convert_single_example(ex_index, example, label_list, max_seq_length,
                            tokenizer):
   """Converts a single `InputExample` into a single `InputFeatures`."""
-
-  if isinstance(example, PaddingInputExample):
-    return InputFeatures(
-        input_ids=[0] * max_seq_length,
-        input_mask=[0] * max_seq_length,
-        segment_ids=[0] * max_seq_length,
-        label_id=0,
-        is_real_example=False)
-
   sts = True if len(label_list) == 0 else False
 
   if not sts:
@@ -733,19 +692,6 @@ def convert_single_example(ex_index, example, label_list, max_seq_length,
   assert len(segment_ids) == max_seq_length
 
   label_id = label_map[example.label] if not sts else example.label
-  if ex_index < 5:
-    tf.logging.info("*** Example ***")
-    tf.logging.info("guid: %s" % (example.guid))
-    tf.logging.info("tokens: %s" % " ".join(
-        [tokenization.printable_text(x) for x in tokens]))
-    tf.logging.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
-    tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
-    tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
-
-    if not sts:
-      tf.logging.info("label: %s (id = %d)" % (example.label, label_id))
-    else:
-      tf.logging.info("label: %f" % example.label)
 
   feature = InputFeatures(
       input_ids=input_ids,
@@ -796,8 +742,8 @@ def file_based_convert_examples_to_features(
 
 
 def file_based_input_fn_builder(input_file, seq_length, is_training,
-                                drop_remainder, sts):
-  """Creates an `input_fn` closure to be passed to TPUEstimator."""
+                                drop_remainder, sts, batch_size):
+  """Creates an `input_fn` closure to be passed to TrainSpec."""
 
   name_to_features = {
       "input_ids": tf.FixedLenFeature([seq_length], tf.int64),
@@ -821,10 +767,8 @@ def file_based_input_fn_builder(input_file, seq_length, is_training,
 
     return example
 
-  def input_fn(params):
+  def input_fn(params=None):
     """The actual input function."""
-    batch_size = params["batch_size"]
-
     # For training, we want a lot of parallel reading and shuffling.
     # For eval, we want no shuffling and parallel reading doesn't matter.
     d = tf.data.TFRecordDataset(input_file)
@@ -861,15 +805,14 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 
 
 def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
-                 labels, num_labels, use_one_hot_embeddings):
+                 labels, num_labels):
   """Creates a classification model."""
   model = modeling_flop.BertModelHardConcrete(
       config=bert_config,
       is_training=is_training,
       input_ids=input_ids,
       input_mask=input_mask,
-      token_type_ids=segment_ids,
-      use_one_hot_embeddings=use_one_hot_embeddings)
+      token_type_ids=segment_ids)
 
   # In the demo, we are doing a simple classification task on the entire
   # segment.
@@ -914,18 +857,13 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
 
 
 def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
-                     num_train_steps, num_warmup_steps, use_tpu,
-                     use_one_hot_embeddings, learning_rate_warmup, lambda_learning_rate,
+                     num_train_steps, num_warmup_steps, 
+                     learning_rate_warmup, lambda_learning_rate,
                      alpha_learning_rate, target_sparsity, target_sparsity_warmup):
-  """Returns `model_fn` closure for TPUEstimator."""
+  """Returns `model_fn` closure for Estimator."""
 
   def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
-    """The `model_fn` for TPUEstimator."""
-
-    tf.logging.info("*** Features ***")
-    for name in sorted(features.keys()):
-      tf.logging.info("  name = %s, shape = %s" % (name, features[name].shape))
-
+    """The `model_fn` for Estimator."""
     input_ids = features["input_ids"]
     input_mask = features["input_mask"]
     segment_ids = features["segment_ids"]
@@ -940,25 +878,16 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
 
     (total_loss, per_example_loss, logits, probabilities) = create_model(
         bert_config, is_training, input_ids, input_mask, segment_ids, label_ids,
-        num_labels, use_one_hot_embeddings)
+        num_labels)
 
     sts = True if num_labels == 0 else False
 
     tvars = tf.trainable_variables()
     initialized_variable_names = {}
-    scaffold_fn = None
     if init_checkpoint:
       (assignment_map, initialized_variable_names
       ) = modeling.get_assignment_map_from_checkpoint(tvars, init_checkpoint)
-      if use_tpu:
-
-        def tpu_scaffold():
-          tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
-          return tf.train.Scaffold()
-
-        scaffold_fn = tpu_scaffold
-      else:
-        tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
+      tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
 
     tf.logging.info("**** Trainable Variables ****")
     for var in tvars:
@@ -1019,36 +948,59 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
       
     elif mode == tf.estimator.ModeKeys.EVAL:
 
-      def metric_fn(per_example_loss, label_ids, logits, is_real_example):
+      # def metric_fn(per_example_loss, label_ids, logits, is_real_example):
+      #   predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
+      #   accuracy = tf.metrics.accuracy(
+      #       labels=label_ids, predictions=predictions, weights=is_real_example)
+      #   precision = tf.metrics.precision(
+      #     labels=label_ids, predictions=predictions, weights=is_real_example)
+      #   recall = tf.metrics.recall(
+      #     labels=label_ids, predictions=predictions, weights=is_real_example)
+      #   loss = tf.metrics.mean(values=per_example_loss, weights=is_real_example)
+      #   tf.summary.scalar('accuracy', accuracy)
+      #   return {
+      #       "eval_accuracy": accuracy,
+      #       "eval_loss": loss,
+      #       "precision": precision,
+      #       "recall": recall,
+      #   }
+
+      # def metric_fn_sts(per_example_loss, label_ids, logits, is_real_example):
+      #   # Display labels and predictions	
+        
+        	
+      #   # Compute Pearson correlation	
+        
+        	
+      #   # Compute MSE	
+      #   # mse = tf.metrics.mean(per_example_loss)    	
+      #   mse = tf.metrics.mean_squared_error(label_ids, logits)	
+        	
+
+      # if sts:
+      #   eval_metrics = (metric_fn_sts,
+      #                 [per_example_loss, label_ids, logits, is_real_example])
+      # else:
+      #   eval_metrics = (metric_fn,
+      #                 [per_example_loss, label_ids, logits, is_real_example])
+      
+      if not sts:
         predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
-        accuracy = tf.metrics.accuracy(
-            labels=label_ids, predictions=predictions, weights=is_real_example)
-        precision = tf.metrics.precision(
-          labels=label_ids, predictions=predictions, weights=is_real_example)
-        recall = tf.metrics.recall(
-          labels=label_ids, predictions=predictions, weights=is_real_example)
-        loss = tf.metrics.mean(values=per_example_loss, weights=is_real_example)
-        tf.summary.scalar('accuracy', accuracy)
-        return {
+        accuracy = tf.metrics.accuracy(labels=label_ids, predictions=predictions)
+        precision = tf.metrics.precision(labels=label_ids, predictions=predictions)
+        recall = tf.metrics.recall(labels=label_ids, predictions=predictions)
+        f1_score = (2 * precision[0] * recall[0]) / (precision[0] + recall[0])
+        eval_metric_ops = {
             "eval_accuracy": accuracy,
-            "eval_loss": loss,
             "precision": precision,
             "recall": recall,
-        }
-
-      def metric_fn_sts(per_example_loss, label_ids, logits, is_real_example):
-        # Display labels and predictions	
-        concat1 = tf.contrib.metrics.streaming_concat(logits)	
-        concat2 = tf.contrib.metrics.streaming_concat(label_ids)	
-        	
-        # Compute Pearson correlation	
-        pearson = tf.contrib.metrics.streaming_pearson_correlation(logits, label_ids)	
-        	
-        # Compute MSE	
-        # mse = tf.metrics.mean(per_example_loss)    	
-        mse = tf.metrics.mean_squared_error(label_ids, logits)	
-        	
-        # Compute Spearman correlation	
+            "f1_score": (f1_score, tf.identity(f1_score))
+          }
+      else:
+        concat1 = tf.contrib.metrics.streaming_concat(logits)
+        concat2 = tf.contrib.metrics.streaming_concat(label_ids)
+        pearson = tf.contrib.metrics.streaming_pearson_correlation(logits, label_ids)
+        mse = tf.metrics.mean_squared_error(label_ids, logits)
         size = tf.size(logits)	
         indice_of_ranks_pred = tf.nn.top_k(logits, k=size)[1]	
         indice_of_ranks_label = tf.nn.top_k(label_ids, k=size)[1]	
@@ -1056,39 +1008,27 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
         rank_label = tf.nn.top_k(-indice_of_ranks_label, k=size)[1]	
         rank_pred = tf.to_float(rank_pred)	
         rank_label = tf.to_float(rank_label)	
-        spearman = tf.contrib.metrics.streaming_pearson_correlation(rank_pred, rank_label)	
-        	
-        return {
-            'pred': concat1,
-            'label_ids': concat2,
-            'pearson': pearson,
-            'spearman': spearman,
-            'MSE': mse
+        spearman = tf.contrib.metrics.streaming_pearson_correlation(rank_pred, rank_label)
+        eval_metric_ops = {
+            "pred": concat1,
+            "label_ids": concat2,
+            "pearson": pearson,
+            "spearman": spearman,
+            "MSE": mse
         }
-
-      if sts:
-        eval_metrics = (metric_fn_sts,
-                      [per_example_loss, label_ids, logits, is_real_example])
-      else:
-        eval_metrics = (metric_fn,
-                      [per_example_loss, label_ids, logits, is_real_example])
-
-      output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+      output_spec = tf.estimator.EstimatorSpec(
           mode=mode,
           loss=total_loss,
-          eval_metrics=eval_metrics,
-          scaffold_fn=scaffold_fn)
+          eval_metric_ops=eval_metric_ops)
     else:
       if sts:
-        output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+        output_spec = tf.estimator.EstimatorSpec(
           mode=mode,
-          predictions={"logits": logits},
-          scaffold_fn=scaffold_fn)      
+          predictions={"logits": logits})      
       else:
-        output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+        output_spec = tf.estimator.EstimatorSpec(
           mode=mode,
-          predictions={"probabilities": probabilities},
-          scaffold_fn=scaffold_fn)
+          predictions={"probabilities": probabilities})
     return output_spec
 
   return model_fn
@@ -1223,22 +1163,6 @@ def main(_):
   tokenizer = tokenization.FullTokenizer(
       vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
 
-  tpu_cluster_resolver = None
-  if FLAGS.use_tpu and FLAGS.tpu_name:
-    tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
-        FLAGS.tpu_name, zone=FLAGS.tpu_zone, project=FLAGS.gcp_project)
-
-  is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
-  run_config = tf.contrib.tpu.RunConfig(
-      cluster=tpu_cluster_resolver,
-      master=FLAGS.master,
-      model_dir=FLAGS.output_dir,
-      save_checkpoints_steps=FLAGS.save_checkpoints_steps,
-      tpu_config=tf.contrib.tpu.TPUConfig(
-          iterations_per_loop=FLAGS.iterations_per_loop,
-          num_shards=FLAGS.num_tpu_cores,
-          per_host_input_for_training=is_per_host))
-
   train_examples = None
   num_train_steps = None
   num_warmup_steps = None
@@ -1255,24 +1179,18 @@ def main(_):
       learning_rate=FLAGS.learning_rate,
       num_train_steps=num_train_steps,
       num_warmup_steps=num_warmup_steps,
-      use_tpu=FLAGS.use_tpu,
-      use_one_hot_embeddings=FLAGS.use_tpu,
       learning_rate_warmup=FLAGS.learning_rate_warmup,
       lambda_learning_rate=FLAGS.lambda_learning_rate,
       alpha_learning_rate=FLAGS.alpha_learning_rate,
       target_sparsity=FLAGS.target_sparsity,
       target_sparsity_warmup=FLAGS.target_sparsity_warmup)
 
-  # If TPU is not available, this will fall back to normal Estimator on CPU
-  # or GPU.
-  estimator = tf.contrib.tpu.TPUEstimator(
-      use_tpu=FLAGS.use_tpu,
-      model_fn=model_fn,
-      config=run_config,
-      train_batch_size=FLAGS.train_batch_size,
-      eval_batch_size=FLAGS.eval_batch_size,
-      predict_batch_size=FLAGS.predict_batch_size)
-
+  run_config = tf.estimator.RunConfig(
+    model_dir=FLAGS.output_dir,
+    save_checkpoints_steps=FLAGS.save_checkpoints_steps)
+  estimator = tf.estimator.Estimator(
+    model_fn=model_fn,
+    config=run_config)
   train_time = 0
   if FLAGS.do_train:
     train_file = os.path.join(FLAGS.output_dir, "train.tf_record")
@@ -1287,23 +1205,38 @@ def main(_):
         seq_length=FLAGS.max_seq_length,
         is_training=True,
         drop_remainder=True,
-        sts=sts)
-
-    estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
+        sts=sts,
+        batch_size=FLAGS.train_batch_size)
+    eval_examples = processor.get_dev_examples(FLAGS.data_dir)
+    eval_file = os.path.join(FLAGS.output_dir, "eval.tf_record")
+    file_based_convert_examples_to_features(
+        eval_examples, label_list, FLAGS.max_seq_length, tokenizer, eval_file)
+    eval_input_fn = file_based_input_fn_builder(
+        input_file=eval_file,
+        seq_length=FLAGS.max_seq_length,
+        is_training=False,
+        drop_remainder=False,
+        sts=sts,
+        batch_size=FLAGS.eval_batch_size)
+    train_spec = tf.estimator.TrainSpec(
+        input_fn=train_input_fn,
+        max_steps=num_train_steps
+    )
+    eval_spec = tf.estimator.EvalSpec(
+        input_fn=eval_input_fn,
+        steps=None
+    )
+    tf.estimator.train_and_evaluate(
+        estimator,
+        train_spec,
+        eval_spec)
+    
     train_time = (time.time() - start) / 60
     start = time.time()
-
+  
   if FLAGS.do_eval:
     eval_examples = processor.get_dev_examples(FLAGS.data_dir)
     num_actual_eval_examples = len(eval_examples)
-    if FLAGS.use_tpu:
-      # TPU requires a fixed batch size for all batches, therefore the number
-      # of examples must be a multiple of the batch size, or else examples
-      # will get dropped. So we pad with fake examples which are ignored
-      # later on. These do NOT count towards the metric (all tf.metrics
-      # support a per-instance weight, and these get a weight of 0.0).
-      while len(eval_examples) % FLAGS.eval_batch_size != 0:
-        eval_examples.append(PaddingInputExample())
 
     eval_file = os.path.join(FLAGS.output_dir, "eval.tf_record")
     file_based_convert_examples_to_features(
@@ -1317,19 +1250,14 @@ def main(_):
 
     # This tells the estimator to run through the entire set.
     eval_steps = None
-    # However, if running eval on the TPU, you will need to specify the
-    # number of steps.
-    if FLAGS.use_tpu:
-      assert len(eval_examples) % FLAGS.eval_batch_size == 0
-      eval_steps = int(len(eval_examples) // FLAGS.eval_batch_size)
 
-    eval_drop_remainder = True if FLAGS.use_tpu else False
     eval_input_fn = file_based_input_fn_builder(
         input_file=eval_file,
         seq_length=FLAGS.max_seq_length,
         is_training=False,
-        drop_remainder=eval_drop_remainder,
-        sts=sts)
+        drop_remainder=False,
+        sts=sts,
+        batch_size=FLAGS.train_batch_size)
 
     result = estimator.evaluate(input_fn=eval_input_fn, steps=eval_steps)
 
@@ -1341,10 +1269,6 @@ def main(_):
           continue
         tf.logging.info("  %s = %s", key, str(result[key]))
         writer.write("%s = %s\n" % (key, str(result[key])))
-      if result.__contains__("precision"):
-        f_score = 2 * (result["precision"] * result["recall"]) / (result["precision"] + result["recall"])
-        writer.write("f1_score = %f\n" % f_score)
-        tf.logging.info("f1_score = %f\n" % f_score)
       eval_time = (time.time() - start) / 60
       writer.write("train_time: %fmin\n" % train_time)
       writer.write("eval_time: %fmin\n" % eval_time)
@@ -1354,13 +1278,6 @@ def main(_):
   if FLAGS.do_predict:
     predict_examples = processor.get_test_examples(FLAGS.data_dir)
     num_actual_predict_examples = len(predict_examples)
-    if FLAGS.use_tpu:
-      # TPU requires a fixed batch size for all batches, therefore the number
-      # of examples must be a multiple of the batch size, or else examples
-      # will get dropped. So we pad with fake examples which are ignored
-      # later on.
-      while len(predict_examples) % FLAGS.predict_batch_size != 0:
-        predict_examples.append(PaddingInputExample())
 
     predict_file = os.path.join(FLAGS.output_dir, "predict.tf_record")
     file_based_convert_examples_to_features(predict_examples, label_list,
@@ -1373,13 +1290,13 @@ def main(_):
                     len(predict_examples) - num_actual_predict_examples)
     tf.logging.info("  Batch size = %d", FLAGS.predict_batch_size)
 
-    predict_drop_remainder = True if FLAGS.use_tpu else False
     predict_input_fn = file_based_input_fn_builder(
         input_file=predict_file,
         seq_length=FLAGS.max_seq_length,
         is_training=False,
-        drop_remainder=predict_drop_remainder,
-        sts=sts)
+        drop_remainder=False,
+        sts=sts,
+        batch_size=FLAGS.train_batch_size)
 
     result = estimator.predict(input_fn=predict_input_fn)
 

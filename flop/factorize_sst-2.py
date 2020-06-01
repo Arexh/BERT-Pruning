@@ -39,7 +39,6 @@ def save_factorized_model(bert_config_file, init_checkpoint, output_dir):
         input_mask=None,
         segment_ids=None,
         labels=None,
-        use_one_hot_embeddings=False,
         num_labels=2)
     total_loss = tf.constant([0], shape=[], dtype=tf.float32)
     tvars = tf.trainable_variables()
