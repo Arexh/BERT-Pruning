@@ -1,0 +1,37 @@
+export OUTPUT_DIR=~/SST-2_Pruning
+export CHECKPOINT=uncased_L-12_H-768_A-12_f
+export BERT_DIR=`pwd`
+
+task_name="SST-2"
+batch_size="32"
+max_seq_length="128"
+fine_tune_epoch="5.0"
+learning_rate="1e-5"
+learning_rate_warmup="200"
+lambda_lr="5.0"
+alpha_lr="1.0"
+target_sparsity="0.8"
+target_sparsity_warmup="4000"
+hidden_dropout_prob="0.1"
+attention_probs_dropout_prob="0.1"
+
+CUDA_VISIBLE_DEVICES=1 python ./flop/run_classifier.py \
+    --task_name=$task_name \
+    --do_train=true \
+    --do_eval=true \
+    --data_dir=$BERT_DIR/datasets/$task_name/ \
+    --vocab_file=$BERT_DIR/$CHECKPOINT/vocab.txt \
+    --bert_config_file=$BERT_DIR/$CHECKPOINT/bert_config.json \
+    --init_checkpoint=$BERT_DIR/$CHECKPOINT/bert_model_f.ckpt \
+    --max_seq_length=$max_seq_length \
+    --train_batch_size=$batch_size \
+    --learning_rate=$learning_rate \
+    --num_train_epochs=$fine_tune_epoch \
+    --learning_rate_warmup=$learning_rate_warmup \
+    --lambda_learning_rate=$lambda_lr \
+    --alpha_learning_rate=$alpha_lr \
+    --target_sparsity=$target_sparsity \
+    --hidden_dropout_prob=$hidden_dropout_prob \
+    --attention_probs_dropout_prob=$attention_probs_dropout_prob \
+    --target_sparsity_warmup=$target_sparsity_warmup \
+    --output_dir=$OUTPUT_DIR/$CHECKPOINT

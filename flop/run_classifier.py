@@ -111,10 +111,6 @@ tf.flags.DEFINE_string(
 
 tf.flags.DEFINE_string("master", None, "[Optional] TensorFlow master URL.")
 
-flags.DEFINE_string(
-    "tensorbord_output_dir", None,
-    "The tensorflow output dir.")
-
 flags.DEFINE_integer(
     "learning_rate_warmup", 100,
     "The warmup steps of alpha and lambda.")
@@ -455,31 +451,23 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
           target_sparsity=target_sparsity,
           target_sparsity_warmup=target_sparsity_warmup)
       logging_hook = tf.train.LoggingTensorHook({"training_loss": total_loss}, every_n_iter=10)
-      if FLAGS.tensorbord_output_dir is not None:
-        hyperparams = np.array(["batch_size=%d" % FLAGS.train_batch_size,
-                                "epochs=%f" % FLAGS.num_train_epochs,
-                                "warmup_proportion=%f" % FLAGS.warmup_proportion,
-                                "init_lr=%f" % FLAGS.learning_rate,
-                                "lambda_lr=%f" % FLAGS.lambda_learning_rate,
-                                "alpha_lr=%f" % FLAGS.alpha_learning_rate,
-                                "lr_warmup=%d" % FLAGS.learning_rate_warmup,
-                                "target_sparsity=%f" % FLAGS.target_sparsity,
-                                "target_sparsity_warmup=%d" % FLAGS.target_sparsity_warmup,
-                                "hidden_dropout_prob=%f" % FLAGS.hidden_dropout_prob,
-                                "attention_probs_dropout_prob=%f" % FLAGS.attention_probs_dropout_prob])
-        hp_op = tf.summary.text("Hyperparameters", tf.constant(hyperparams))
-         
-        output_spec = tf.estimator.EstimatorSpec(
-            mode=mode,
-            loss=total_loss,
-            train_op=train_op,
-            training_hooks=[logging_hook])
-      else:
-        output_spec = tf.estimator.EstimatorSpec(
-            mode=mode,
-            loss=total_loss,
-            train_op=train_op,
-            training_hooks=[logging_hook])
+      hyperparams = np.array(["batch_size=%d" % FLAGS.train_batch_size,
+                              "epochs=%f" % FLAGS.num_train_epochs,
+                              "warmup_proportion=%f" % FLAGS.warmup_proportion,
+                              "init_lr=%f" % FLAGS.learning_rate,
+                              "lambda_lr=%f" % FLAGS.lambda_learning_rate,
+                              "alpha_lr=%f" % FLAGS.alpha_learning_rate,
+                              "lr_warmup=%d" % FLAGS.learning_rate_warmup,
+                              "target_sparsity=%f" % FLAGS.target_sparsity,
+                              "target_sparsity_warmup=%d" % FLAGS.target_sparsity_warmup,
+                              "hidden_dropout_prob=%f" % FLAGS.hidden_dropout_prob,
+                              "attention_probs_dropout_prob=%f" % FLAGS.attention_probs_dropout_prob])
+      hp_op = tf.summary.text("Hyperparameters", tf.constant(hyperparams))
+      output_spec = tf.estimator.EstimatorSpec(
+          mode=mode,
+          loss=total_loss,
+          train_op=train_op,
+          training_hooks=[logging_hook])
       
     elif mode == tf.estimator.ModeKeys.EVAL:
 
@@ -615,8 +603,6 @@ def main(_):
 
   time_str = utils.now_to_date()
   FLAGS.output_dir = os.path.join(FLAGS.output_dir, time_str)
-  if FLAGS.tensorbord_output_dir is not None:
-    FLAGS.tensorbord_output_dir = os.path.join(FLAGS.tensorbord_output_dir, time_str)
 
   processors = {
       "cola": ColaProcessor,

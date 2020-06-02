@@ -495,25 +495,3 @@ def transformer_model_flop(input_tensor,
     else:
         final_output = reshape_from_matrix(prev_output, input_shape)
         return final_output
-
-
-def create_model_train(bert_config, is_training, input_ids, input_mask, segment_ids,
-                       labels, num_labels):
-    model = BertModelHardConcrete(
-        config=bert_config,
-        is_training=is_training,
-        input_ids=input_ids,
-        input_mask=input_mask,
-        token_type_ids=segment_ids)
-    num_labels = max(num_labels, 1)
-
-    output_layer = model.get_pooled_output()
-
-    hidden_size = output_layer.shape[-1].value
-
-    output_weights = tf.get_variable(
-        "output_weights", [num_labels, hidden_size],
-        initializer=tf.truncated_normal_initializer(stddev=0.02))
-
-    output_bias = tf.get_variable(
-        "output_bias", [num_labels], initializer=tf.zeros_initializer())
