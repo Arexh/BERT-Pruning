@@ -158,18 +158,17 @@ def create_optimizer(loss,
     lagrangian_loss = tf.add(lagrangian_loss, tf.multiply(
         lambda_2, tf.math.square(tf.subtract(target_sparsity, expected_sparsity))))
 
-    tf.summary.scalar('loss', loss)
-    tf.summary.scalar('lagrangian_loss', tf.reshape(lagrangian_loss, []))
+    tf.summary.scalar("lagrangian_loss", tf.reshape(lagrangian_loss, []))
     tf.summary.scalar("model_lr", learning_rate)
     tf.summary.scalar("lambda_lr",
                       tf.reshape(lambda_learning_rate, []))
     tf.summary.scalar("alpha_lr",
                       tf.reshape(alpha_learning_rate, []))
-    tf.summary.scalar('l0_norm', tf.reshape(l0_norm, []))
-    tf.summary.scalar('expected_sparsity', tf.reshape(expected_sparsity, []))
-    tf.summary.scalar('target_sparsity', tf.reshape(target_sparsity, []))
-    tf.summary.scalar('lambda_1', tf.reshape(lambda_1, []))
-    tf.summary.scalar('lambda_2', tf.reshape(lambda_2, []))
+    tf.summary.scalar("l0_norm", tf.reshape(l0_norm, []))
+    tf.summary.scalar("expected_sparsity", tf.reshape(expected_sparsity, []))
+    tf.summary.scalar("target_sparsity", tf.reshape(target_sparsity, []))
+    tf.summary.scalar("lambda_1", tf.reshape(lambda_1, []))
+    tf.summary.scalar("lambda_2", tf.reshape(lambda_2, []))
 
     final_loss = tf.add(loss, lagrangian_loss)
     grads = tf.gradients(final_loss, tvars)

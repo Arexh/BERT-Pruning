@@ -454,13 +454,8 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
           alpha_lr=alpha_learning_rate,
           target_sparsity=target_sparsity,
           target_sparsity_warmup=target_sparsity_warmup)
-      
+      logging_hook = tf.train.LoggingTensorHook({"training_loss": total_loss}, every_n_iter=10)
       if FLAGS.tensorbord_output_dir is not None:
-        summary_hook = tf.train.SummarySaverHook(
-          10,
-          output_dir=FLAGS.tensorbord_output_dir,
-          summary_op=tf.summary.merge_all())
-        
         hyperparams = np.array(["batch_size=%d" % FLAGS.train_batch_size,
                                 "epochs=%f" % FLAGS.num_train_epochs,
                                 "warmup_proportion=%f" % FLAGS.warmup_proportion,
@@ -473,67 +468,30 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
                                 "hidden_dropout_prob=%f" % FLAGS.hidden_dropout_prob,
                                 "attention_probs_dropout_prob=%f" % FLAGS.attention_probs_dropout_prob])
         hp_op = tf.summary.text("Hyperparameters", tf.constant(hyperparams))
-
-        hyperparameters_hook = tf.train.SummarySaverHook(
-          100000,
-          output_dir=FLAGS.tensorbord_output_dir,
-          summary_op=[hp_op])
          
         output_spec = tf.estimator.EstimatorSpec(
             mode=mode,
             loss=total_loss,
             train_op=train_op,
-            training_hooks=[summary_hook, hyperparameters_hook])
+            training_hooks=[logging_hook])
       else:
         output_spec = tf.estimator.EstimatorSpec(
             mode=mode,
             loss=total_loss,
-            train_op=train_op)
+            train_op=train_op,
+            training_hooks=[logging_hook])
       
     elif mode == tf.estimator.ModeKeys.EVAL:
 
-      # def metric_fn(per_example_loss, label_ids, logits, is_real_example):
-      #   predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
-      #   accuracy = tf.metrics.accuracy(
-      #       labels=label_ids, predictions=predictions, weights=is_real_example)
-      #   precision = tf.metrics.precision(
-      #     labels=label_ids, predictions=predictions, weights=is_real_example)
-      #   recall = tf.metrics.recall(
-      #     labels=label_ids, predictions=predictions, weights=is_real_example)
-      #   loss = tf.metrics.mean(values=per_example_loss, weights=is_real_example)
-      #   tf.summary.scalar('accuracy', accuracy)
-      #   return {
-      #       "eval_accuracy": accuracy,
-      #       "eval_loss": loss,
-      #       "precision": precision,
-      #       "recall": recall,
-      #   }
-
-      # def metric_fn_sts(per_example_loss, label_ids, logits, is_real_example):
-      #   # Display labels and predictions	
-        
-        	
-      #   # Compute Pearson correlation	
-        
-        	
-      #   # Compute MSE	
-      #   # mse = tf.metrics.mean(per_example_loss)    	
-      #   mse = tf.metrics.mean_squared_error(label_ids, logits)	
-        	
-
-      # if sts:
-      #   eval_metrics = (metric_fn_sts,
-      #                 [per_example_loss, label_ids, logits, is_real_example])
-      # else:
-      #   eval_metrics = (metric_fn,
-      #                 [per_example_loss, label_ids, logits, is_real_example])
-      
       if not sts:
         predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
         accuracy = tf.metrics.accuracy(labels=label_ids, predictions=predictions)
         precision = tf.metrics.precision(labels=label_ids, predictions=predictions)
         recall = tf.metrics.recall(labels=label_ids, predictions=predictions)
         f1_score = (2 * precision[0] * recall[0]) / (precision[0] + recall[0])
+        loss = tf.metrics.mean(values=per_example_loss)
+        tf.summary.scalar("eval_accuracy", tf.reshape(accuracy[0], []))
+        tf.summary.scalar("eval_precision", tf.reshape(precision[0], []))
         eval_metric_ops = {
             "eval_accuracy": accuracy,
             "precision": precision,
@@ -715,7 +673,6 @@ def main(_):
     num_train_steps = int(
         len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
     num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
-
   model_fn = model_fn_builder(
       bert_config=bert_config,
       num_labels=len(label_list),
@@ -731,6 +688,7 @@ def main(_):
 
   run_config = tf.estimator.RunConfig(
     model_dir=FLAGS.output_dir,
+    save_summary_steps=10,
     save_checkpoints_steps=FLAGS.save_checkpoints_steps)
   estimator = tf.estimator.Estimator(
     model_fn=model_fn,
@@ -768,7 +726,8 @@ def main(_):
     )
     eval_spec = tf.estimator.EvalSpec(
         input_fn=eval_input_fn,
-        steps=None
+        steps=None,
+        throttle_secs=1
     )
     tf.estimator.train_and_evaluate(
         estimator,
