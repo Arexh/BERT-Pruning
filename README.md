@@ -22,6 +22,7 @@ The code in folder `bert`  is a clone from [google-research](https://github.com/
 ```
 BERT-Pruning
 |-- bert	# from https://github.com/google-research/bert
+|-- flop    # flop pruning method's code
 |-- datasets	# a collection of datasets,need to download from https://gluebenchmark.com/tasks
 	|-- MNLI
 		|-- train.tsv
@@ -55,10 +56,12 @@ BERT-Pruning
 		|-- dev.tsv
 		|-- test.tsv
 |-- uncased_L-12_H-768_A-12	# pretained model, from https://storage.googleapis.com/bert_models/2018_10_18/uncased_L-12_H-768_A-12.zip
+|-- uncased_L-12_H-768_A-12_f # factorized model 
+|-- uncased_L-12_H-768_A-12_SST-2_f
 |-- run_all.sh	# simple script to fine-tune all tasks
 ```
 
-### Fine-tuning on Tasks
+## Fine-tuning on Tasks (Unfactorized Model)
 
 Here provides a simple bash script `run_all.sh` to run all tasks, each tasks will use four learning rates to fine-tune: `5e-5, 4e-5, 3e-5, 2e-5`, other hyperparameters are same as [bert](https://github.com/google-research/bert). 
 
@@ -103,7 +106,131 @@ Here we follow paper's instructions, fine-tuning model in four different learnin
 
 The experimental data is stored in the folder [`fine_tune_results`](https://github.com/Holldean/BERT-Pruning/tree/master/fine_tune_results).
 
-### Cite
+## Structured Pruning 
+
+The algorithm I implement is from paper [[1910.04732]Structured Pruning of Large Language Models](https://arxiv.org/abs/1910.04732), and many code is taken from their repository [asappresearch/flop](https://github.com/asappresearch/flop), however some details many be different from them. I also refer to Goggle's l0 regularization pruning code: [google-research/google-research/state_of_sparsity](https://github.com/google-research/google-research/tree/master/state_of_sparsity). All pruning code is placed under the `flop` folder.
+
+This algorithm need to follow these four steps:
+
+1. Factorize the matrix of each dense layer of BERT pretrain model into two submatrix.
+2. Place a pruning mask diagonal matrix between every two factorized matrixes, and construct a new intermediate model.
+3. Finetune this intermediate model on down steam task.
+4. Remove pruning masks and merge each two factorized matrixes into one.
+
+### 1. Factorization
+
+In first two steps, we need download a BERT checkpoint first, run the script `factorize.sh`:
+
+```python
+python ./flop/factorize.py \
+  --bert_config_file=./uncased_L-12_H-768_A-12/bert_config.json \
+  --checkpoint=./uncased_L-12_H-768_A-12/bert_model.ckpt \
+  --output_dir=./uncased_L-12_H-768_A-12_f/bert_model_f.ckpt \
+  --finetuned
+```
+
+If `--finetuned` argument is set, the output weight in the BERT model will also be loaded.
+
+This script will first build a intermediate model,  then load tensors from BERT's checkpoint and factorize dense layer's matrixes, save these tensor into intermediate model. If run correctly, the following message will be shown in terminal:
+
+```
+INFO:tensorflow:Tensor: bert/encoder/layer_3/attention/self/value_p/kernel:0 *INIT_FROM_CKPT*
+INFO:tensorflow:Tensor: bert/encoder/layer_3/attention/self/value_q/kernel:0 *INIT_FROM_CKPT*
+INFO:tensorflow:Tensor: bert/encoder/layer_0/attention/self/key_p/kernel:0 *INIT_FROM_CKPT*
+INFO:tensorflow:Tensor: bert/encoder/layer_0/attention/self/key_q/kernel:0 *INIT_FROM_CKPT*
+```
+
+If success, a checkpoint of the result model will be in output directory.
+
+### 2. Finetune
+
+Run the script `run.sh`:
+
+```bash
+export OUTPUT_DIR=~/SST-2_Pruning
+export CHECKPOINT=uncased_L-12_H-768_A-12_f
+export BERT_DIR=`pwd`
+
+task_name="SST-2"
+batch_size="32"
+max_seq_length="128"
+fine_tune_epoch="5.0"
+learning_rate="1e-5"
+learning_rate_warmup="200"
+lambda_lr="5.0"
+alpha_lr="1.0"
+target_sparsity="0.8"
+target_sparsity_warmup="4000"
+hidden_dropout_prob="0.1"
+attention_probs_dropout_prob="0.1"
+regularization_scale="0.05"
+
+python ./flop/run_classifier.py \
+    --task_name=$task_name \
+    --do_train=true \
+    --do_eval=true \
+    --data_dir=$BERT_DIR/datasets/$task_name/ \
+    --vocab_file=$BERT_DIR/$CHECKPOINT/vocab.txt \
+    --bert_config_file=$BERT_DIR/$CHECKPOINT/bert_config.json \
+    --init_checkpoint=$BERT_DIR/$CHECKPOINT/bert_model_f.ckpt \
+    --max_seq_length=$max_seq_length \
+    --train_batch_size=$batch_size \
+    --learning_rate=$learning_rate \
+    --num_train_epochs=$fine_tune_epoch \
+    --learning_rate_warmup=$learning_rate_warmup \
+    --lambda_learning_rate=$lambda_lr \
+    --alpha_learning_rate=$alpha_lr \
+    --target_sparsity=$target_sparsity \
+    --hidden_dropout_prob=$hidden_dropout_prob \
+    --attention_probs_dropout_prob=$attention_probs_dropout_prob \
+    --target_sparsity_warmup=$target_sparsity_warmup \
+    --regularization_scale=$regularization_scale \
+    --output_dir=$OUTPUT_DIR/$CHECKPOINT
+```
+
+Adjust arguments if you need, more specific details please check the paper. In addition, in order to solve the problem of overfitting, I also add **l2 regularization** on dense layers.
+
+The `output_dir` will store the checkpoints and a tensorboard's summary file. The evaluate metrics on dev set will also be summarized in that directory. 
+
+Each training output will store in a folder named by a timestamp string. For example: `SST-2_Pruning/uncased_L-12_H-768_A-12_f/2020-06-02-12:15:59`.
+
+#### Tensorboard Scalars
+
+In `flop/optimization_flop.py` ,  loss, expected sparsity and each parameters' learning rates are summarized. Also, when training the model,  the program will save model's checkpoint per 1000 (parameter `save_checkpoints_steps` in `run_classifier.py`) steps, and `tf.estimator.train_and_evaluate()` evaluate new checkpoint in dev set. The evaluate result will be summarized as well. 
+
+Suppose we select training summary and evaluate summary at the same time:
+
+![](http://47.101.132.64:8888/images/2020/06/03/blob70b1f8508d5925df.jpg)
+
+Following charts will be shown:
+
+![image-20200603220345047](http://47.101.132.64:8888/images/2020/06/03/blob835bb06d7f2c2f6f.jpg)
+
+![](http://47.101.132.64:8888/images/2020/06/03/blob2cf743a3ee3ea712.jpg)
+
+Scalars description:
+
++ `lambda_1_1`, `lambda_2_1` : Two Lagrange multipliers in l0 regularization pruning.
+
++ `alpha_lr`, `lambda_lr`, `model_lr` : Learning rate of alphas, lambdas and BERT model parameters.
++ `expected_sparsity` , `target_sparsity`: Expected sparsity calculated by model's alphas parameters, and target sparsity which is warm up by `target_sparsity_warmup` steps.
++ `l2_regularization_loss` : Sum of all dense layers' l2 regularization value.
++ `eval_accuracy`, `precision`, `recall`, `f1_score`: Metrics on entire dev set evaluated on checkpoint.
++ `loss_1`: MSE loss in that training step.
++ `loss`: MSE loss on entire dev set evaluated on checkpoint.
+
+#### Tensorboard Hyperparameters
+
+All hyperparameters will be stored as summary text:
+
+![](http://47.101.132.64:8888/images/2020/06/03/blobec168c629a2459a9.jpg)
+
+### 3. Result
+
++ Using the hyperparameters in [asappresearch/flop](https://github.com/asappresearch/flop) will cause the model to overfit (probably because the model used is different). After training 10 epochs, training set has **0.93 accuracy** however **0.77 accuracy** on dev set.
++ View the more details on [Tensorboard](http://47.101.132.64:6007/). 
+
+## Cite
 
 ```
 @article{devlin2018bert,
@@ -116,6 +243,12 @@ The experimental data is stored in the folder [`fine_tune_results`](https://gith
   title={ {GLUE}: A Multi-Task Benchmark and Analysis Platform for Natural Language Understanding},
   author={Wang, Alex and Singh, Amanpreet and Michael, Julian and Hill, Felix and Levy, Omer and Bowman, Samuel R.},
   note={In the Proceedings of ICLR.},
+  year={2019}
+}
+@article{wang2019structured,
+  title={Structured Pruning of Large Language Models},
+  author={Wang, Ziheng and Wohlwend, Jeremy and Lei, Tao},
+  journal={arXiv preprint arXiv:1910.04732},
   year={2019}
 }
 ```
