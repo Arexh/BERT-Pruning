@@ -91,7 +91,8 @@ class BertModelHardConcrete(BertModel):
                     attention_probs_dropout_prob=config.attention_probs_dropout_prob,
                     initializer_range=config.initializer_range,
                     do_return_all_layers=True,
-                    is_training=is_training)
+                    is_training=is_training,
+                    regularization_scale=config.regularization_scale)
 
             self.sequence_output = self.all_encoder_layers[-1]
             # The "pooler" converts the encoded sequence tensor of shape
@@ -108,7 +109,8 @@ class BertModelHardConcrete(BertModel):
                     first_token_tensor,
                     config.hidden_size,
                     activation=tf.tanh,
-                    kernel_initializer=create_initializer(config.initializer_range))
+                    kernel_initializer=create_initializer(config.initializer_range),
+                    kernel_regularizer=tf.contrib.layers.l2_regularizer(config.regularization_scale))
 
 
 def attention_layer_flop(from_tensor,
@@ -125,7 +127,8 @@ def attention_layer_flop(from_tensor,
                          batch_size=None,
                          from_seq_length=None,
                          to_seq_length=None,
-                         is_training=True):
+                         is_training=True,
+                         regularization_scale=0.1):
 
     def transpose_for_scores(input_tensor, batch_size, num_attention_heads,
                              seq_length, width):
@@ -170,7 +173,8 @@ def attention_layer_flop(from_tensor,
         activation=None,
         use_bias=False,
         name="query_p",
-        kernel_initializer=create_initializer(initializer_range))
+        kernel_initializer=create_initializer(initializer_range),
+        kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
     # Attention: eps, beta, limit_l, limit_r!
     query_layer_mask = layers.FlopMask(
@@ -184,7 +188,8 @@ def attention_layer_flop(from_tensor,
         num_attention_heads * size_per_head,
         activation=query_act,
         name="query_q",
-        kernel_initializer=create_initializer(initializer_range))
+        kernel_initializer=create_initializer(initializer_range),
+        kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
     # # `query_layer` = [B*F, N*H]
     # query_layer = tf.layers.dense(
@@ -201,7 +206,8 @@ def attention_layer_flop(from_tensor,
         activation=None,
         use_bias=False,
         name="key_p",
-        kernel_initializer=create_initializer(initializer_range))
+        kernel_initializer=create_initializer(initializer_range),
+        kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
     # Attention: eps, beta, limit_l, limit_r!
     key_layer_mask = layers.FlopMask(
@@ -215,7 +221,8 @@ def attention_layer_flop(from_tensor,
         num_attention_heads * size_per_head,
         activation=key_act,
         name="key_q",
-        kernel_initializer=create_initializer(initializer_range))
+        kernel_initializer=create_initializer(initializer_range),
+        kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
     # `key_layer` = [B*T, N*H]
     # key_layer = tf.layers.dense(
@@ -232,7 +239,8 @@ def attention_layer_flop(from_tensor,
         activation=None,
         use_bias=False,
         name="value_p",
-        kernel_initializer=create_initializer(initializer_range))
+        kernel_initializer=create_initializer(initializer_range),
+        kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
     # Attention: eps, beta, limit_l, limit_r!
     value_layer_mask = layers.FlopMask(
@@ -246,7 +254,8 @@ def attention_layer_flop(from_tensor,
         num_attention_heads * size_per_head,
         activation=value_act,
         name="value_q",
-        kernel_initializer=create_initializer(initializer_range))
+        kernel_initializer=create_initializer(initializer_range),
+        kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
     # `value_layer` = [B*T, N*H]
     # value_layer = tf.layers.dense(
@@ -332,7 +341,8 @@ def transformer_model_flop(input_tensor,
                            attention_probs_dropout_prob=0.1,
                            initializer_range=0.02,
                            do_return_all_layers=False,
-                           is_training=True):
+                           is_training=True,
+                           regularization_scale=0.1):
     if hidden_size % num_attention_heads != 0:
         raise ValueError(
             "The hidden size (%d) is not a multiple of the number of attention "
@@ -376,7 +386,8 @@ def transformer_model_flop(input_tensor,
                         batch_size=batch_size,
                         from_seq_length=seq_length,
                         to_seq_length=seq_length,
-                        is_training=is_training)
+                        is_training=is_training,
+                        regularization_scale=regularization_scale)
                     attention_heads.append(attention_head)
 
                 attention_output = None
@@ -396,7 +407,8 @@ def transformer_model_flop(input_tensor,
                         hidden_size,
                         use_bias=False,
                         name="dense_p",
-                        kernel_initializer=create_initializer(initializer_range))
+                        kernel_initializer=create_initializer(initializer_range),
+                        kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
                     # Attention: eps, beta, limit_l, limit_r!
                     attention_output_mask = layers.FlopMask(
@@ -410,7 +422,8 @@ def transformer_model_flop(input_tensor,
                         attention_output_mask_output,
                         hidden_size,
                         name="dense_q",
-                        kernel_initializer=create_initializer(initializer_range))
+                        kernel_initializer=create_initializer(initializer_range),
+                        kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
                     # attention_output = tf.layers.dense(
                     #     attention_output,
@@ -431,7 +444,8 @@ def transformer_model_flop(input_tensor,
                     activation=None,
                     use_bias=False,
                     name='dense_p',
-                    kernel_initializer=create_initializer(initializer_range))
+                    kernel_initializer=create_initializer(initializer_range),
+                    kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
                 # Attention: eps, beta, limit_l, limit_r!
                 intermediate_output_mask = layers.FlopMask(
@@ -446,7 +460,8 @@ def transformer_model_flop(input_tensor,
                     intermediate_size,
                     activation=intermediate_act_fn,
                     name='dense_q',
-                    kernel_initializer=create_initializer(initializer_range))
+                    kernel_initializer=create_initializer(initializer_range),
+                    kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
                 # intermediate_output = tf.layers.dense(
                 #     attention_output,
@@ -462,7 +477,8 @@ def transformer_model_flop(input_tensor,
                     intermediate_size,
                     use_bias=False,
                     name="dense_p",
-                    kernel_initializer=create_initializer(initializer_range))
+                    kernel_initializer=create_initializer(initializer_range),
+                    kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
                 # Attention: eps, beta, limit_l, limit_r!
                 layer_output_mask = layers.FlopMask(
@@ -475,7 +491,8 @@ def transformer_model_flop(input_tensor,
                     layer_output_mask_output,
                     hidden_size,
                     name="dense_q",
-                    kernel_initializer=create_initializer(initializer_range))
+                    kernel_initializer=create_initializer(initializer_range),
+                    kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
                 # layer_output = tf.layers.dense(
                 #     intermediate_output,

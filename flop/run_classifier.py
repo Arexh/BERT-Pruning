@@ -139,6 +139,10 @@ flags.DEFINE_float(
     "hidden_dropout_prob", 0.1,
     "The dropout probability of hidden layer.")
 
+flags.DEFINE_float(
+    "regularization_scale", 0.1,
+    "The regularization scale of transformer.")
+
 class InputFeatures(object):
   """A single set of features of data."""
 
@@ -452,16 +456,17 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
           target_sparsity_warmup=target_sparsity_warmup)
       logging_hook = tf.train.LoggingTensorHook({"training_loss": total_loss}, every_n_iter=10)
       hyperparams = np.array(["batch_size=%d" % FLAGS.train_batch_size,
-                              "epochs=%f" % FLAGS.num_train_epochs,
-                              "warmup_proportion=%f" % FLAGS.warmup_proportion,
-                              "init_lr=%f" % FLAGS.learning_rate,
-                              "lambda_lr=%f" % FLAGS.lambda_learning_rate,
-                              "alpha_lr=%f" % FLAGS.alpha_learning_rate,
+                              "epochs=%.2f" % FLAGS.num_train_epochs,
+                              "warmup_proportion=%.2f" % FLAGS.warmup_proportion,
+                              "init_lr=%s" % "{:.2E}".format(FLAGS.learning_rate),
+                              "lambda_lr=%s" % "{:.2E}".format(FLAGS.lambda_learning_rate),
+                              "alpha_lr=%s" % "{:.2E}".format(FLAGS.alpha_learning_rate),
                               "lr_warmup=%d" % FLAGS.learning_rate_warmup,
-                              "target_sparsity=%f" % FLAGS.target_sparsity,
+                              "target_sparsity=%.2f" % FLAGS.target_sparsity,
                               "target_sparsity_warmup=%d" % FLAGS.target_sparsity_warmup,
-                              "hidden_dropout_prob=%f" % FLAGS.hidden_dropout_prob,
-                              "attention_probs_dropout_prob=%f" % FLAGS.attention_probs_dropout_prob])
+                              "hidden_dropout_prob=%.2f" % FLAGS.hidden_dropout_prob,
+                              "attention_probs_dropout_prob=%.2f" % FLAGS.attention_probs_dropout_prob,
+                              "regularization_scale=%s" % "{:.2E}".format(FLAGS.regularization_scale)])
       hp_op = tf.summary.text("Hyperparameters", tf.constant(hyperparams))
       output_spec = tf.estimator.EstimatorSpec(
           mode=mode,
@@ -629,6 +634,7 @@ def main(_):
   bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
   bert_config.attention_probs_dropout_prob = FLAGS.attention_probs_dropout_prob
   bert_config.hidden_dropout_prob = FLAGS.hidden_dropout_prob
+  bert_config.regularization_scale = FLAGS.regularization_scale
 
   if FLAGS.max_seq_length > bert_config.max_position_embeddings:
     raise ValueError(

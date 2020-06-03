@@ -157,8 +157,10 @@ def create_optimizer(loss,
         lambda_1, tf.subtract(target_sparsity, expected_sparsity))
     lagrangian_loss = tf.add(lagrangian_loss, tf.multiply(
         lambda_2, tf.math.square(tf.subtract(target_sparsity, expected_sparsity))))
+    l1_regularization_loss = tf.losses.get_regularization_loss()
 
     tf.summary.scalar("lagrangian_loss", tf.reshape(lagrangian_loss, []))
+    tf.summary.scalar("l1_regularization_loss", tf.reshape(l1_regularization_loss, []))
     tf.summary.scalar("model_lr", learning_rate)
     tf.summary.scalar("lambda_lr",
                       tf.reshape(lambda_learning_rate, []))
@@ -171,6 +173,7 @@ def create_optimizer(loss,
     tf.summary.scalar("lambda_2", tf.reshape(lambda_2, []))
 
     final_loss = tf.add(loss, lagrangian_loss)
+    final_loss = tf.add(final_loss, l1_regularization_loss)
     grads = tf.gradients(final_loss, tvars)
     var_zip = zip(grads, tvars)
 

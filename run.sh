@@ -14,6 +14,7 @@ target_sparsity="0.8"
 target_sparsity_warmup="4000"
 hidden_dropout_prob="0.1"
 attention_probs_dropout_prob="0.1"
+regularization_scale="0.05"
 
 CUDA_VISIBLE_DEVICES=1 python ./flop/run_classifier.py \
     --task_name=$task_name \
@@ -34,4 +35,5 @@ CUDA_VISIBLE_DEVICES=1 python ./flop/run_classifier.py \
     --hidden_dropout_prob=$hidden_dropout_prob \
     --attention_probs_dropout_prob=$attention_probs_dropout_prob \
     --target_sparsity_warmup=$target_sparsity_warmup \
+    --regularization_scale=$regularization_scale \
     --output_dir=$OUTPUT_DIR/$CHECKPOINT
