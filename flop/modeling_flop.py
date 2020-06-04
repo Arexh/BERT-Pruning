@@ -10,7 +10,8 @@ class BertModelHardConcrete(BertModel):
                  input_mask=None,
                  token_type_ids=None,
                  use_one_hot_embeddings=False,
-                 scope=None):
+                 scope=None,
+                 factorize=False):
         """Constructor for BertModel.
 
         Args:
@@ -92,7 +93,8 @@ class BertModelHardConcrete(BertModel):
                     initializer_range=config.initializer_range,
                     do_return_all_layers=True,
                     is_training=is_training,
-                    regularization_scale=config.regularization_scale)
+                    regularization_scale=config.regularization_scale,
+                    factorize=factorize)
 
             self.sequence_output = self.all_encoder_layers[-1]
             # The "pooler" converts the encoded sequence tensor of shape
@@ -128,8 +130,8 @@ def attention_layer_flop(from_tensor,
                          from_seq_length=None,
                          to_seq_length=None,
                          is_training=True,
-                         regularization_scale=0.1):
-
+                         regularization_scale=0.1,
+                         factorize=False):
     def transpose_for_scores(input_tensor, batch_size, num_attention_heads,
                              seq_length, width):
         output_tensor = tf.reshape(
@@ -176,12 +178,14 @@ def attention_layer_flop(from_tensor,
         kernel_initializer=create_initializer(initializer_range),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
-    # Attention: eps, beta, limit_l, limit_r!
-    query_layer_mask = layers.FlopMask(
-        name="query_g",
-        is_training=is_training)
-
-    query_layer_mask_output = query_layer_mask(query_layer_p)
+    if not factorize:
+        # Attention: eps, beta, limit_l, limit_r!
+        query_layer_mask = layers.FlopMask(
+            name="query_g",
+            is_training=is_training)
+        query_layer_mask_output = query_layer_mask(query_layer_p)
+    else:
+        query_layer_mask_output = query_layer_p
 
     query_layer = tf.layers.dense(
         query_layer_mask_output,
@@ -209,12 +213,14 @@ def attention_layer_flop(from_tensor,
         kernel_initializer=create_initializer(initializer_range),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
-    # Attention: eps, beta, limit_l, limit_r!
-    key_layer_mask = layers.FlopMask(
-        name="key_g",
-        is_training=is_training)
-
-    key_layer_mask_output = key_layer_mask(key_layer_p)
+    if not factorize:
+        # Attention: eps, beta, limit_l, limit_r!
+        key_layer_mask = layers.FlopMask(
+            name="key_g",
+            is_training=is_training)
+        key_layer_mask_output = key_layer_mask(key_layer_p)
+    else:
+        key_layer_mask_output = key_layer_p
 
     key_layer = tf.layers.dense(
         key_layer_mask_output,
@@ -242,12 +248,14 @@ def attention_layer_flop(from_tensor,
         kernel_initializer=create_initializer(initializer_range),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
-    # Attention: eps, beta, limit_l, limit_r!
-    value_layer_mask = layers.FlopMask(
-        name="value_g",
-        is_training=is_training)
-
-    value_layer_mask_output = value_layer_mask(value_layer_p)
+    if not factorize:
+        # Attention: eps, beta, limit_l, limit_r!
+        value_layer_mask = layers.FlopMask(
+            name="value_g",
+            is_training=is_training)
+        value_layer_mask_output = value_layer_mask(value_layer_p)
+    else:
+        value_layer_mask_output = value_layer_p
 
     value_layer = tf.layers.dense(
         value_layer_mask_output,
@@ -342,7 +350,8 @@ def transformer_model_flop(input_tensor,
                            initializer_range=0.02,
                            do_return_all_layers=False,
                            is_training=True,
-                           regularization_scale=0.1):
+                           regularization_scale=0.1,
+                           factorize=False):
     if hidden_size % num_attention_heads != 0:
         raise ValueError(
             "The hidden size (%d) is not a multiple of the number of attention "
@@ -387,7 +396,8 @@ def transformer_model_flop(input_tensor,
                         from_seq_length=seq_length,
                         to_seq_length=seq_length,
                         is_training=is_training,
-                        regularization_scale=regularization_scale)
+                        regularization_scale=regularization_scale,
+                        factorize=factorize)
                     attention_heads.append(attention_head)
 
                 attention_output = None
@@ -410,13 +420,15 @@ def transformer_model_flop(input_tensor,
                         kernel_initializer=create_initializer(initializer_range),
                         kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
-                    # Attention: eps, beta, limit_l, limit_r!
-                    attention_output_mask = layers.FlopMask(
-                        name="dense_g",
-                        is_training=is_training)
-
-                    attention_output_mask_output = attention_output_mask(
-                        attention_output_p)
+                    if not factorize:
+                        # Attention: eps, beta, limit_l, limit_r!
+                        attention_output_mask = layers.FlopMask(
+                            name="dense_g",
+                            is_training=is_training)
+                        attention_output_mask_output = attention_output_mask(
+                            attention_output_p)
+                    else:
+                        attention_output_mask_output = attention_output_p
 
                     attention_output = tf.layers.dense(
                         attention_output_mask_output,
@@ -447,13 +459,15 @@ def transformer_model_flop(input_tensor,
                     kernel_initializer=create_initializer(initializer_range),
                     kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
-                # Attention: eps, beta, limit_l, limit_r!
-                intermediate_output_mask = layers.FlopMask(
-                    name="dense_g",
-                    is_training=is_training)
-
-                intermediate_output_mask_output = intermediate_output_mask(
-                    intermediate_output_p)
+                if not factorize:
+                    # Attention: eps, beta, limit_l, limit_r!
+                    intermediate_output_mask = layers.FlopMask(
+                        name="dense_g",
+                        is_training=is_training)
+                    intermediate_output_mask_output = intermediate_output_mask(
+                        intermediate_output_p)
+                else:
+                    intermediate_output_mask_output = intermediate_output_p
 
                 intermediate_output = tf.layers.dense(
                     intermediate_output_mask_output,
@@ -480,12 +494,14 @@ def transformer_model_flop(input_tensor,
                     kernel_initializer=create_initializer(initializer_range),
                     kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
-                # Attention: eps, beta, limit_l, limit_r!
-                layer_output_mask = layers.FlopMask(
-                    name="dense_g",
-                    is_training=is_training)
-
-                layer_output_mask_output = layer_output_mask(layer_output_p)
+                if not factorize:
+                    # Attention: eps, beta, limit_l, limit_r!
+                    layer_output_mask = layers.FlopMask(
+                        name="dense_g",
+                        is_training=is_training)
+                    layer_output_mask_output = layer_output_mask(layer_output_p)
+                else:
+                    layer_output_mask_output = layer_output_p
 
                 layer_output = tf.layers.dense(
                     layer_output_mask_output,

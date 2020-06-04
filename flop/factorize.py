@@ -42,7 +42,8 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
         is_training=is_training,
         input_ids=input_ids,
         input_mask=input_mask,
-        token_type_ids=segment_ids)
+        token_type_ids=segment_ids,
+        factorize=True)
     if finetuned:
         num_labels = max(num_labels, 1)
         output_layer = model.get_pooled_output()

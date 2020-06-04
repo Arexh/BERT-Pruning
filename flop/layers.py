@@ -89,8 +89,9 @@ class FlopMask(base.Layer):
         input_hidden_size = input_shape[1]
 
         mean = math.log(1 - self.init_mean) - math.log(self.init_mean)
-        self.log_alpha_initializer = tf.random_normal_initializer(
-            mean=mean, stddev=self.init_std, dtype=self.dtype)
+        # self.log_alpha_initializer = tf.random_normal_initializer(
+        #     mean=mean, stddev=self.init_std, dtype=self.dtype)
+        self.log_alpha_initializer = tf.constant_initializer(5)
 
         self.log_alpha = tf.get_variable(
             "log_alpha",

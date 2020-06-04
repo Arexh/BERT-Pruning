@@ -614,7 +614,6 @@ def main(_):
       "mnli": MnliProcessor,
       "mrpc": MrpcProcessor,
       "xnli": XnliProcessor,
-      "mnli": MnliProcessor,
       "qnli": QnliProcessor,
       "qqp": QqpProcessor,
       "rte": RteProcessor,
