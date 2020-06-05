@@ -228,10 +228,29 @@ All hyperparameters will be stored as summary text:
 
 ![](http://47.101.132.64:8888/images/2020/06/03/blobec168c629a2459a9.jpg)
 
-### 3. Result
+### 3. Remove Mask
 
-+ Using the hyperparameters in [asappresearch/flop](https://github.com/asappresearch/flop) will cause the model to overfit (probably because the model used is different). After training 10 epochs, training set has **0.93 accuracy** however **0.77 accuracy** on dev set.
-+ View the more details on [Tensorboard](http://47.101.132.64:6007/). 
+Run the script `remove_mask.sh`:
+
+```bash
+python ./flop/remove_mask.py \
+  --bert_config_file=./uncased_L-12_H-768_A-12/bert_config.json \
+  --checkpoint=/path/to/checkpoint \
+  --output_folder_dir=/path/to/output/directory
+```
+
+After running, checkpoint and config file will output to `output_folder_dir`. Parameters information will be shown in `info.txt`, such as:
+
+```
+dense_total_params: 233570304
+dense_pruned_params: 60684288
+dense_origin_params: 84934656
+dense_sparsity: 0.740188
+non_kernel_params: 23959298
+total_params: 108893954
+pruned_total_params: 84643586
+actual_compact_rate: 0.777303
+```
 
 ## Cite
 
