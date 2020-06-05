@@ -2,6 +2,86 @@ from modeling import *
 import layers
 
 
+class BertConfig(object):
+    """Configuration for `BertModel`."""
+
+    def __init__(self,
+                 vocab_size,
+                 hidden_size=768,
+                 num_hidden_layers=12,
+                 num_attention_heads=12,
+                 intermediate_size=3072,
+                 hidden_act="gelu",
+                 hidden_dropout_prob=0.1,
+                 attention_probs_dropout_prob=0.1,
+                 max_position_embeddings=512,
+                 type_vocab_size=16,
+                 initializer_range=0.02,
+                 regularization_scale=0.001,
+                 pruned_layers_dim={}):
+        """Constructs BertConfig.
+
+        Args:
+          vocab_size: Vocabulary size of `inputs_ids` in `BertModel`.
+          hidden_size: Size of the encoder layers and the pooler layer.
+          num_hidden_layers: Number of hidden layers in the Transformer encoder.
+          num_attention_heads: Number of attention heads for each attention layer in
+            the Transformer encoder.
+          intermediate_size: The size of the "intermediate" (i.e., feed-forward)
+            layer in the Transformer encoder.
+          hidden_act: The non-linear activation function (function or string) in the
+            encoder and pooler.
+          hidden_dropout_prob: The dropout probability for all fully connected
+            layers in the embeddings, encoder, and pooler.
+          attention_probs_dropout_prob: The dropout ratio for the attention
+            probabilities.
+          max_position_embeddings: The maximum sequence length that this model might
+            ever be used with. Typically set this to something large just in case
+            (e.g., 512 or 1024 or 2048).
+          type_vocab_size: The vocabulary size of the `token_type_ids` passed into
+            `BertModel`.
+          initializer_range: The stdev of the truncated_normal_initializer for
+            initializing all weight matrices.
+        """
+        self.vocab_size = vocab_size
+        self.hidden_size = hidden_size
+        self.num_hidden_layers = num_hidden_layers
+        self.num_attention_heads = num_attention_heads
+        self.hidden_act = hidden_act
+        self.intermediate_size = intermediate_size
+        self.hidden_dropout_prob = hidden_dropout_prob
+        self.attention_probs_dropout_prob = attention_probs_dropout_prob
+        self.max_position_embeddings = max_position_embeddings
+        self.type_vocab_size = type_vocab_size
+        self.initializer_range = initializer_range
+        self.regularization_scale = regularization_scale
+        self.pruned_layers_dim = pruned_layers_dim
+
+    @classmethod
+    def from_dict(cls, json_object):
+        """Constructs a `BertConfig` from a Python dictionary of parameters."""
+        config = BertConfig(vocab_size=None)
+        for (key, value) in six.iteritems(json_object):
+            config.__dict__[key] = value
+        return config
+
+    @classmethod
+    def from_json_file(cls, json_file):
+        """Constructs a `BertConfig` from a json file of parameters."""
+        with tf.gfile.GFile(json_file, "r") as reader:
+            text = reader.read()
+        return cls.from_dict(json.loads(text))
+
+    def to_dict(self):
+        """Serializes this instance to a Python dictionary."""
+        output = copy.deepcopy(self.__dict__)
+        return output
+
+    def to_json_string(self):
+        """Serializes this instance to a JSON string."""
+        return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
+
+
 class BertModelHardConcrete(BertModel):
     def __init__(self,
                  config,
@@ -94,7 +174,8 @@ class BertModelHardConcrete(BertModel):
                     do_return_all_layers=True,
                     is_training=is_training,
                     regularization_scale=config.regularization_scale,
-                    factorize=factorize)
+                    factorize=factorize,
+                    pruned_layers_dim=config.pruned_layers_dim)
 
             self.sequence_output = self.all_encoder_layers[-1]
             # The "pooler" converts the encoded sequence tensor of shape
@@ -111,7 +192,8 @@ class BertModelHardConcrete(BertModel):
                     first_token_tensor,
                     config.hidden_size,
                     activation=tf.tanh,
-                    kernel_initializer=create_initializer(config.initializer_range),
+                    kernel_initializer=create_initializer(
+                        config.initializer_range),
                     kernel_regularizer=tf.contrib.layers.l2_regularizer(config.regularization_scale))
 
 
@@ -131,7 +213,8 @@ def attention_layer_flop(from_tensor,
                          to_seq_length=None,
                          is_training=True,
                          regularization_scale=0.1,
-                         factorize=False):
+                         factorize=False,
+                         pruned_layers_dim={}):
     def transpose_for_scores(input_tensor, batch_size, num_attention_heads,
                              seq_length, width):
         output_tensor = tf.reshape(
@@ -168,10 +251,17 @@ def attention_layer_flop(from_tensor,
     from_tensor_2d = reshape_to_matrix(from_tensor)
     to_tensor_2d = reshape_to_matrix(to_tensor)
 
+    scope_name = tf.get_variable_scope().name
+
+    if scope_name + '/query_p/kernel' not in pruned_layers_dim:
+        query_size = num_attention_heads * size_per_head
+    else:
+        query_size = pruned_layers_dim[scope_name + '/query_p/kernel']
+    
     # query layer matrix factorized here
     query_layer_p = tf.layers.dense(
         from_tensor_2d,
-        num_attention_heads * size_per_head,
+        query_size,
         activation=None,
         use_bias=False,
         name="query_p",
@@ -203,10 +293,15 @@ def attention_layer_flop(from_tensor,
     #     name="query",
     #     kernel_initializer=create_initializer(initializer_range))
 
+    if scope_name + '/key_p/kernel' not in pruned_layers_dim:
+        key_size = num_attention_heads * size_per_head
+    else:
+        key_size = pruned_layers_dim[scope_name + '/key_p/kernel']
+
     # key layer matrix factorized here
     key_layer_p = tf.layers.dense(
         to_tensor_2d,
-        num_attention_heads * size_per_head,
+        key_size,
         activation=None,
         use_bias=False,
         name="key_p",
@@ -238,10 +333,15 @@ def attention_layer_flop(from_tensor,
     #     name="key",
     #     kernel_initializer=create_initializer(initializer_range))
 
+    if scope_name + '/value_p/kernel' not in pruned_layers_dim:
+        value_size = num_attention_heads * size_per_head
+    else:
+        value_size = pruned_layers_dim[scope_name + '/value_p/kernel']
+
     # value layer matrix factorized here
     value_layer_p = tf.layers.dense(
         to_tensor_2d,
-        num_attention_heads * size_per_head,
+        value_size,
         activation=None,
         use_bias=False,
         name="value_p",
@@ -351,7 +451,11 @@ def transformer_model_flop(input_tensor,
                            do_return_all_layers=False,
                            is_training=True,
                            regularization_scale=0.1,
-                           factorize=False):
+                           factorize=False,
+                           pruned_layers_dim={}):
+    if not pruned_layers_dim == {}:
+        factorize = True
+
     if hidden_size % num_attention_heads != 0:
         raise ValueError(
             "The hidden size (%d) is not a multiple of the number of attention "
@@ -397,7 +501,8 @@ def transformer_model_flop(input_tensor,
                         to_seq_length=seq_length,
                         is_training=is_training,
                         regularization_scale=regularization_scale,
-                        factorize=factorize)
+                        factorize=factorize,
+                        pruned_layers_dim=pruned_layers_dim)
                     attention_heads.append(attention_head)
 
                 attention_output = None
@@ -411,13 +516,19 @@ def transformer_model_flop(input_tensor,
                 # Run a linear projection of `hidden_size` then add a residual
                 # with `layer_input`.
                 with tf.variable_scope("output"):
+                    scope_name = tf.get_variable_scope().name
+                    if scope_name + '/dense_p/kernel' not in pruned_layers_dim:
+                        dense_size = hidden_size
+                    else:
+                        dense_size = pruned_layers_dim[scope_name + '/dense_p/kernel']
                     # attention output fractorized here
                     attention_output_p = tf.layers.dense(
                         attention_output,
-                        hidden_size,
+                        dense_size,
                         use_bias=False,
                         name="dense_p",
-                        kernel_initializer=create_initializer(initializer_range),
+                        kernel_initializer=create_initializer(
+                            initializer_range),
                         kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
                     if not factorize:
@@ -434,7 +545,8 @@ def transformer_model_flop(input_tensor,
                         attention_output_mask_output,
                         hidden_size,
                         name="dense_q",
-                        kernel_initializer=create_initializer(initializer_range),
+                        kernel_initializer=create_initializer(
+                            initializer_range),
                         kernel_regularizer=tf.contrib.layers.l2_regularizer(regularization_scale))
 
                     # attention_output = tf.layers.dense(
@@ -449,10 +561,15 @@ def transformer_model_flop(input_tensor,
 
             # The activation is only applied to the "intermediate" hidden layer.
             with tf.variable_scope("intermediate"):
+                scope_name = tf.get_variable_scope().name
+                if scope_name + '/dense_p/kernel' not in pruned_layers_dim:
+                    dense_size = hidden_size
+                else:
+                    dense_size = pruned_layers_dim[scope_name + '/dense_p/kernel']
                 # intermidiate output fractorized here
                 intermediate_output_p = tf.layers.dense(
                     attention_output,
-                    hidden_size,
+                    dense_size,
                     activation=None,
                     use_bias=False,
                     name='dense_p',
@@ -485,10 +602,15 @@ def transformer_model_flop(input_tensor,
 
             # Down-project back to `hidden_size` then add the residual.
             with tf.variable_scope("output"):
+                scope_name = tf.get_variable_scope().name
+                if scope_name + '/dense_p/kernel' not in pruned_layers_dim:
+                    dense_size = intermediate_size
+                else:
+                    dense_size = pruned_layers_dim[scope_name + '/dense_p/kernel']
                 # layer output fractorized here
                 layer_output_p = tf.layers.dense(
                     intermediate_output,
-                    intermediate_size,
+                    dense_size,
                     use_bias=False,
                     name="dense_p",
                     kernel_initializer=create_initializer(initializer_range),
@@ -499,7 +621,8 @@ def transformer_model_flop(input_tensor,
                     layer_output_mask = layers.FlopMask(
                         name="dense_g",
                         is_training=is_training)
-                    layer_output_mask_output = layer_output_mask(layer_output_p)
+                    layer_output_mask_output = layer_output_mask(
+                        layer_output_p)
                 else:
                     layer_output_mask_output = layer_output_p
 

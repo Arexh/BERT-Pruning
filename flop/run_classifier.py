@@ -630,7 +630,7 @@ def main(_):
     raise ValueError(
         "At least one of `do_train`, `do_eval` or `do_predict' must be True.")
 
-  bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
+  bert_config = modeling_flop.BertConfig.from_json_file(FLAGS.bert_config_file)
   bert_config.attention_probs_dropout_prob = FLAGS.attention_probs_dropout_prob
   bert_config.hidden_dropout_prob = FLAGS.hidden_dropout_prob
   bert_config.regularization_scale = FLAGS.regularization_scale
