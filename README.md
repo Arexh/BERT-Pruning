@@ -22,7 +22,7 @@ The code in folder `bert`  is a clone from [google-research](https://github.com/
 ```
 BERT-Pruning
 |-- bert	# from https://github.com/google-research/bert
-|-- flop    # flop pruning method's code
+|-- flop    	# flop pruning method's code
 |-- datasets	# a collection of datasets,need to download from https://gluebenchmark.com/tasks
 	|-- MNLI
 		|-- train.tsv
@@ -56,9 +56,12 @@ BERT-Pruning
 		|-- dev.tsv
 		|-- test.tsv
 |-- uncased_L-12_H-768_A-12	# pretained model, from https://storage.googleapis.com/bert_models/2018_10_18/uncased_L-12_H-768_A-12.zip
-|-- uncased_L-12_H-768_A-12_f # factorized model 
+|-- uncased_L-12_H-768_A-12_f 	# factorized model 
 |-- uncased_L-12_H-768_A-12_SST-2_f
-|-- run_all.sh	# simple script to fine-tune all tasks
+|-- run_all.sh			# simple script to fine-tune all tasks
+|-- run.sh			# pruning factorized model
+|-- factorize.sh		# factorize a BERT model into a new model
+|-- remove_mask.sh		# remove mask layer from factorized model
 ```
 
 ## Fine-tuning on Tasks (Unfactorized Model)
@@ -115,7 +118,7 @@ This algorithm need to follow these four steps:
 1. Factorize the matrix of each dense layer of BERT pretrain model into two submatrix.
 2. Place a pruning mask diagonal matrix between every two factorized matrixes, and construct a new intermediate model.
 3. Finetune this intermediate model on down steam task.
-4. Remove pruning masks and merge each two factorized matrixes into one.
+4. Remove pruning masks from factorized layer.
 
 ### 1. Factorization
 
