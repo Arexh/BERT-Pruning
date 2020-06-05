@@ -171,6 +171,14 @@ def create_optimizer(loss,
     tf.summary.scalar("lambda_1", tf.reshape(lambda_1, []))
     tf.summary.scalar("lambda_2", tf.reshape(lambda_2, []))
 
+    if init_lr == 0:
+        temp_lst = []
+        for tvar in tvars:
+            if 'log_alpha' not in tvar.name and 'lambda_' not in tvar.name:
+                temp_lst.append(tvar)
+        for tvar in temp_lst:
+            tvars.remove(tvar)
+
     final_loss = tf.add(loss, lagrangian_loss)
     final_loss = tf.add(final_loss, l2_regularization_loss)
     grads = tf.gradients(final_loss, tvars)
