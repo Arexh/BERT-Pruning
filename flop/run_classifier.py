@@ -143,6 +143,8 @@ flags.DEFINE_float(
     "regularization_scale", 0.1,
     "The regularization scale of transformer.")
 
+flags.DEFINE_bool("factorized", False, "Factorized model or not")
+
 class InputFeatures(object):
   """A single set of features of data."""
 
@@ -356,7 +358,8 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
       is_training=is_training,
       input_ids=input_ids,
       input_mask=input_mask,
-      token_type_ids=segment_ids)
+      token_type_ids=segment_ids,
+      factorize=FLAGS.factorized)
 
   # In the demo, we are doing a simple classification task on the entire
   # segment.
@@ -453,7 +456,8 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
           lambda_lr=lambda_learning_rate,
           alpha_lr=alpha_learning_rate,
           target_sparsity=target_sparsity,
-          target_sparsity_warmup=target_sparsity_warmup)
+          target_sparsity_warmup=target_sparsity_warmup,
+          factorized=FLAGS.factorized)
       logging_hook = tf.train.LoggingTensorHook({"training_loss": total_loss}, every_n_iter=10)
       hyperparams = np.array(["batch_size=%d" % FLAGS.train_batch_size,
                               "epochs=%.2f" % FLAGS.num_train_epochs,

@@ -35,7 +35,8 @@ def create_optimizer(loss,
                      lambda_lr=1.0,
                      alpha_lr=0.001,
                      target_sparsity=0.8,
-                     target_sparsity_warmup=80000):
+                     target_sparsity_warmup=80000,
+                     factorized=False):
     """Creates an optimizer training op."""
     global_step = tf.train.get_or_create_global_step()
 
@@ -117,70 +118,73 @@ def create_optimizer(loss,
         epsilon=1e-8)
 
     tvars = tf.trainable_variables()
-
-    prunable_parameters = sum(tvar.shape[0] * tvar.shape[1]
-                              for tvar in tvars if '_p/kernel' in tvar.name or '_q/kernel' in tvar.name)
-    prunable_parameters = tf.cast(tf.constant(
-        prunable_parameters, dtype=tf.int32), tf.float32)
-
-    bias = tf.constant(common.BIAS, shape=[], dtype=tf.float32)
-
-    # Calculate expected sparsity
-    vars_dict = {}
-    expected_params = tf.constant(0, shape=[], dtype=tf.float32)
-    for tvar in tvars:
-        if '_p/kernel' in tvar.name or '_q/kernel' in tvar.name or '_g/log_alpha' in tvar.name:
-            layer_str = re.findall(
-                r'layer_\d+/[a-z/]*_[pqg]', tvar.name)[0][:-2]
-            matrix_str = re.findall(r'_[pqg]/', tvar.name)[0][1:2]
-            if layer_str not in vars_dict:
-                vars_dict[layer_str] = {}
-            vars_dict[layer_str][matrix_str] = tvar
-
-    for key, value in vars_dict.items():
-        input_feature = tf.constant(value['p'].shape[0], dtype=tf.int32)
-        output_feature = tf.constant(value['q'].shape[1], dtype=tf.int32)
-        input_feature = tf.cast(input_feature, tf.float32)
-        output_feature = tf.cast(output_feature, tf.float32)
-        alpha_param = value['g']
-        l0_norm = tf.reduce_sum(tf.math.sigmoid(tf.add(alpha_param, bias)))
-        expected_params = tf.add(expected_params, tf.add(tf.multiply(
-            input_feature, l0_norm), tf.multiply(l0_norm, output_feature)))
-
-    expected_sparsity = tf.subtract(tf.constant(
-        1., dtype=tf.float32), tf.divide(expected_params, prunable_parameters))
-    target_sparsity = tf.cond(tf.math.greater(target_sparsity_warmup, 0),
-                              lambda: tf.multiply(target_sparsity, tf.math.minimum(
-                                  1.0, tf.divide(tf.cast(global_step, tf.float32), target_sparsity_warmup))),
-                              lambda: target_sparsity)
-    lagrangian_loss = tf.multiply(
-        lambda_1, tf.subtract(target_sparsity, expected_sparsity))
-    lagrangian_loss = tf.add(lagrangian_loss, tf.multiply(
-        lambda_2, tf.math.square(tf.subtract(target_sparsity, expected_sparsity))))
     l2_regularization_loss = tf.losses.get_regularization_loss()
-
-    tf.summary.scalar("lagrangian_loss", tf.reshape(lagrangian_loss, []))
+    final_loss = tf.add(loss, l2_regularization_loss)
     tf.summary.scalar("l2_regularization_loss", tf.reshape(l2_regularization_loss, []))
-    tf.summary.scalar("model_lr", learning_rate)
-    tf.summary.scalar("lambda_lr",
-                      tf.reshape(lambda_learning_rate, []))
-    tf.summary.scalar("alpha_lr",
-                      tf.reshape(alpha_learning_rate, []))
-    tf.summary.scalar("expected_sparsity", tf.reshape(expected_sparsity, []))
-    tf.summary.scalar("target_sparsity", tf.reshape(target_sparsity, []))
-    tf.summary.scalar("lambda_1", tf.reshape(lambda_1, []))
-    tf.summary.scalar("lambda_2", tf.reshape(lambda_2, []))
+    
+    if not factorized:
+        prunable_parameters = sum(tvar.shape[0] * tvar.shape[1]
+                              for tvar in tvars if '_p/kernel' in tvar.name or '_q/kernel' in tvar.name)
+        prunable_parameters = tf.cast(tf.constant(
+            prunable_parameters, dtype=tf.int32), tf.float32)
 
-    if init_lr == 0:
-        temp_lst = []
+        bias = tf.constant(common.BIAS, shape=[], dtype=tf.float32)
+
+        # Calculate expected sparsity
+        vars_dict = {}
+        expected_params = tf.constant(0, shape=[], dtype=tf.float32)
         for tvar in tvars:
-            if 'log_alpha' not in tvar.name and 'lambda_' not in tvar.name:
-                temp_lst.append(tvar)
-        for tvar in temp_lst:
-            tvars.remove(tvar)
+            if '_p/kernel' in tvar.name or '_q/kernel' in tvar.name or '_g/log_alpha' in tvar.name:
+                layer_str = re.findall(
+                    r'layer_\d+/[a-z/]*_[pqg]', tvar.name)[0][:-2]
+                matrix_str = re.findall(r'_[pqg]/', tvar.name)[0][1:2]
+                if layer_str not in vars_dict:
+                    vars_dict[layer_str] = {}
+                vars_dict[layer_str][matrix_str] = tvar
 
-    final_loss = tf.add(loss, lagrangian_loss)
-    final_loss = tf.add(final_loss, l2_regularization_loss)
+        for key, value in vars_dict.items():
+            input_feature = tf.constant(value['p'].shape[0], dtype=tf.int32)
+            output_feature = tf.constant(value['q'].shape[1], dtype=tf.int32)
+            input_feature = tf.cast(input_feature, tf.float32)
+            output_feature = tf.cast(output_feature, tf.float32)
+            alpha_param = value['g']
+            l0_norm = tf.reduce_sum(tf.math.sigmoid(tf.add(alpha_param, bias)))
+            expected_params = tf.add(expected_params, tf.add(tf.multiply(
+                input_feature, l0_norm), tf.multiply(l0_norm, output_feature)))
+
+        expected_sparsity = tf.subtract(tf.constant(
+            1., dtype=tf.float32), tf.divide(expected_params, prunable_parameters))
+        target_sparsity = tf.cond(tf.math.greater(target_sparsity_warmup, 0),
+                                lambda: tf.multiply(target_sparsity, tf.math.minimum(
+                                    1.0, tf.divide(tf.cast(global_step, tf.float32), target_sparsity_warmup))),
+                                lambda: target_sparsity)
+        lagrangian_loss = tf.multiply(
+            lambda_1, tf.subtract(target_sparsity, expected_sparsity))
+        lagrangian_loss = tf.add(lagrangian_loss, tf.multiply(
+            lambda_2, tf.math.square(tf.subtract(target_sparsity, expected_sparsity))))
+
+        tf.summary.scalar("lagrangian_loss", tf.reshape(lagrangian_loss, []))
+        tf.summary.scalar("model_lr", learning_rate)
+        tf.summary.scalar("lambda_lr",
+                        tf.reshape(lambda_learning_rate, []))
+        tf.summary.scalar("alpha_lr",
+                        tf.reshape(alpha_learning_rate, []))
+        tf.summary.scalar("expected_sparsity", tf.reshape(expected_sparsity, []))
+        tf.summary.scalar("target_sparsity", tf.reshape(target_sparsity, []))
+        tf.summary.scalar("lambda_1", tf.reshape(lambda_1, []))
+        tf.summary.scalar("lambda_2", tf.reshape(lambda_2, []))
+        
+        if init_lr == 0:
+            temp_lst = []
+            for tvar in tvars:
+                if 'log_alpha' not in tvar.name and 'lambda_' not in tvar.name:
+                    temp_lst.append(tvar)
+            for tvar in temp_lst:
+                tvars.remove(tvar)
+
+        final_loss = tf.add(final_loss, lagrangian_loss)
+        grads = tf.gradients(final_loss, tvars)
+    
     grads = tf.gradients(final_loss, tvars)
     var_zip = zip(grads, tvars)
 

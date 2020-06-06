@@ -66,7 +66,7 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
         "output_bias", [num_labels], initializer=tf.zeros_initializer())
 
 
-def remove_mask(bert_config_file, init_checkpoint, output_dir):
+def remove_mask(bert_config_file, init_checkpoint, output_dir, threshold=0):
     reader = pywrap_tensorflow.NewCheckpointReader(init_checkpoint)
     kernel_pattern = "^bert/encoder/.*((query|key|value)|(dense))/kernel$"
     var_to_shape_map = reader.get_variable_to_shape_map()
@@ -98,7 +98,7 @@ def remove_mask(bert_config_file, init_checkpoint, output_dir):
     for layer, var_name in log_alphas:
         tensor = reader.get_tensor(var_name)
         length = len(tensor)
-        tensor, index = get_index(tensor, threshold=0)
+        tensor, index = get_index(tensor, threshold=threshold)
         pruned_length = len(index)
         layer_sparsity = pruned_length / length
         p, q = kernel_map(var_name)
@@ -172,9 +172,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--checkpoint", help="factorized checkpoint to remove mask")
     parser.add_argument("--output_folder_dir", help="output folder directory")
+    parser.add_argument("--threshold", help="mask pruned threshold", type=float)
     args = parser.parse_args()
     tf.logging.set_verbosity(tf.logging.DEBUG)
     remove_mask(
         bert_config_file=args.bert_config_file,
         init_checkpoint=args.checkpoint,
-        output_dir=args.output_folder_dir)
+        output_dir=args.output_folder_dir,
+        threshold=args.threshold)
