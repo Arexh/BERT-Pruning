@@ -120,19 +120,25 @@ This algorithm need to follow these four steps:
 3. Finetune this intermediate model on down steam task.
 4. Remove pruning masks from factorized layer.
 
+However, the result of this method mentioned in paper is not good, so I use another way:
+
+1. Finetune BERT pretrain model in dataset (SST-2, learning rate 3e-5).
+2. Factorize the matrix of each dense layer of this finetuned checkpoint into two submatrix.
+3. Finetune this intermediate model on down steam task (set model learning rate to 0).
+4. Remove pruning masks from factorized layer.
+5. Finetune again (set model learning rate to 1e-6).
+
 ### 1. Factorization
 
-In first two steps, we need download a BERT checkpoint first, run the script `factorize.sh`:
+In first two steps, we need download a BERT checkpoint first, fine-tune it on dataset(SST-2), run the script `factorize.sh`:
 
 ```python
 python ./flop/factorize.py \
   --bert_config_file=./uncased_L-12_H-768_A-12/bert_config.json \
-  --checkpoint=./uncased_L-12_H-768_A-12/bert_model.ckpt \
+  --checkpoint=./path/to/finetuned/model/bert_model.ckpt \
   --output_dir=./uncased_L-12_H-768_A-12_f/bert_model_f.ckpt \
   --finetuned
 ```
-
-If `--finetuned` argument is set, the output weight in the BERT model will also be loaded.
 
 This script will first build a intermediate model,  then load tensors from BERT's checkpoint and factorize dense layer's matrixes, save these tensor into intermediate model. If run correctly, the following message will be shown in terminal:
 
@@ -157,16 +163,16 @@ export BERT_DIR=`pwd`
 task_name="SST-2"
 batch_size="32"
 max_seq_length="128"
-fine_tune_epoch="5.0"
-learning_rate="1e-5"
+fine_tune_epoch="50.0"
+learning_rate="0"
 learning_rate_warmup="200"
-lambda_lr="5.0"
-alpha_lr="1.0"
-target_sparsity="0.8"
+lambda_lr="10.0"
+alpha_lr="5.0"
+target_sparsity="0.95"
 target_sparsity_warmup="4000"
 hidden_dropout_prob="0.1"
 attention_probs_dropout_prob="0.1"
-regularization_scale="0.05"
+regularization_scale="0"
 
 python ./flop/run_classifier.py \
     --task_name=$task_name \
@@ -228,6 +234,14 @@ All hyperparameters will be stored as summary text:
 
 ![](http://47.101.132.64:8888/images/2020/06/03/blobec168c629a2459a9.jpg)
 
+#### Finetune Result
+
+My finetune result:
+
+![](http://47.101.132.64:8888/images/2020/06/07/blob.jpg)
+
+Then we can get a checkpoint (80% sparsity, 0.9 accuracy).
+
 ### 3. Remove Mask
 
 Run the script `remove_mask.sh`:
@@ -239,18 +253,31 @@ python ./flop/remove_mask.py \
   --output_folder_dir=/path/to/output/directory
 ```
 
-After running, checkpoint and config file will output to `output_folder_dir`. Parameters information will be shown in `info.txt`, such as:
+After running, checkpoint and config file will output to `output_folder_dir`. Parameters information will be shown in `info.txt`:
 
 ```
 dense_total_params: 233570304
-dense_pruned_params: 60684288
+dense_pruned_params: 41538048
 dense_origin_params: 84934656
-dense_sparsity: 0.740188
+dense_sparsity: 0.822160
 non_kernel_params: 23959298
 total_params: 108893954
-pruned_total_params: 84643586
-actual_compact_rate: 0.777303
+pruned_total_params: 65497346
+actual_compact_rate: 0.601478
 ```
+
+### 4. Finetune Again
+
+![](http://47.101.132.64:8888/images/2020/06/07/blob35f73e38aabe827d.jpg)
+
+Then we get a model with 92.43% accuracy and 65M parameters, compare with BERT base:
+
+| Parameters | SST-2  |
+| ---------- | ------ |
+| 108M(100%) | 93.35% |
+| 65M(60%)   | 92.43% |
+
+[Download model here](https://drive.google.com/file/d/1yucacZQuqsv5OIWfYJ-UCDajpUrFBw2N/view?usp=sharing)
 
 ## Cite
 
