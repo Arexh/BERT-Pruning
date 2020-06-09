@@ -280,9 +280,9 @@ Then we get a model with 92.43% accuracy and 65M parameters, compare with BERT b
 
 | Metrics\Model | BERT base | Pruned model |
 | ---- | ---- | ---- |
-| Checkpoint size | 421MB | 253MB(60%) |
-| Memory allocation | 1399MB | 879MB(63%) |
-| Latency | 8.45s | 8.92s(105%) |
+| Checkpoint size | 421MB | 253MB (60%) |
+| Memory allocation | 1399MB | 879MB (63%) |
+| Latency | 8.45s | 8.92s (105%) |
 
 (Test on SST-2 dev set, batch size=8, TITAN RTX)
 
