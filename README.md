@@ -16,6 +16,7 @@ The code in folder `bert`  is a clone from [google-research](https://github.com/
 ### Hardware
 
 * GTX1080ti  11GB
+* TITAN RTX 24GB
 
 ### Folder Description
 
@@ -277,7 +278,13 @@ Then we get a model with 92.43% accuracy and 65M parameters, compare with BERT b
 | 108M(100%) | 93.35% |
 | 65M(60%)   | 92.43% |
 
-[Download model here](https://drive.google.com/file/d/1yucacZQuqsv5OIWfYJ-UCDajpUrFBw2N/view?usp=sharing)
+| Metrics\Model | BERT base | Pruned model |
+| ---- | ---- | ---- |
+| Checkpoint size | 421MB | 253MB(60%) |
+| Memory allocation | 1399MB | 879MB(63%) |
+| Latency | 8.45s | 8.92s(105%) |
+(Test on SST-2 dev set, batch size=8, TITAN RTX)
+[Download model here](https://drive.google.com/file/d/1jIFzyjjIoL-A8j5SQNtoJiSf1VsdfTbG/view?usp=sharing)
 
 ## Cite
 
