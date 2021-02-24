@@ -56,7 +56,7 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
 
 
 def save_factorized_model(bert_config_file, init_checkpoint, output_dir, finetuned):
-    bert_config = modeling.BertConfig.from_json_file(bert_config_file)
+    bert_config = modeling_flop.BertConfig.from_json_file(bert_config_file)
     input_ids = tf.constant([[31, 51, 99], [15, 5, 0]])
     create_model(
         bert_config=bert_config,
