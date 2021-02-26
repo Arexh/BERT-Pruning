@@ -1,6 +1,6 @@
-export OUTPUT_DIR=~/SST-2_Pruning
-export CHECKPOINT=uncased_L-12_H-768_A-12_f
 export BERT_DIR=`pwd`
+export CHECKPOINT=uncased_L-12_H-768_A-12_SST-2_f
+export OUTPUT_DIR=$BERT_DIR/SST-2_Pruning
 
 task_name="SST-2"
 batch_size="32"
