@@ -1,3 +1,5 @@
+
+
 # BERT-Pruning
 Tensorflow implementation of pruning on [[BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding](https://arxiv.org/abs/1810.04805)]. Currently, we fine-tune BERT pretrained model `uncased_L-12_H-768_A-12`  on several GLUE benchmark and evaluate scores on `dev` set.
 
@@ -48,7 +50,7 @@ BERT-Pruning
 		|-- train.tsv
 		|-- dev.tsv
 		|-- test.tsv
-	|-- SST-B
+	|-- STS-B
 		|-- train.tsv
 		|-- dev.tsv
 		|-- test.tsv
@@ -310,4 +312,3 @@ Then we get a model with 92.43% accuracy and 65M parameters, compare with BERT b
   year={2019}
 }
 ```
-
